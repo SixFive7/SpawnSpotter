@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>SpawnSpotter.Tests</RootNamespace>
+    <AssemblyName>SpawnSpotter.Tests</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- TUnit is a testhost; do not enable AOT for the test project. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\SpawnSpotter.csproj">
+      <!-- Don't try to AOT-publish via test project. -->
+      <PublishAot>false</PublishAot>
+    </ProjectReference>
+  </ItemGroup>
+
+</Project>

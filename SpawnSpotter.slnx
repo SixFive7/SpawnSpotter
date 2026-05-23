@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/tests/">
+    <Project Path="tests/SpawnSpotter.Tests/SpawnSpotter.Tests.csproj" />
+  </Folder>
+  <Project Path="SpawnSpotter.csproj" />
+</Solution>

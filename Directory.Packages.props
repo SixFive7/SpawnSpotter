@@ -6,6 +6,6 @@
   <ItemGroup>
     <PackageVersion Include="Spectre.Console" Version="0.55.0" />
     <PackageVersion Include="Spectre.Console.Cli" Version="0.55.0" />
-    <PackageVersion Include="TUnit" Version="0.30.0" />
+    <PackageVersion Include="TUnit" Version="1.45.29" />
   </ItemGroup>
 </Project>

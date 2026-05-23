@@ -12,7 +12,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <WarningsAsErrors />
 
-    <!-- AOT settings -->
+    <!-- AOT settings: only kick in on publish (so test project can ProjectReference us). -->
     <PublishAot>true</PublishAot>
     <InvariantGlobalization>true</InvariantGlobalization>
     <IlcOptimizationPreference>Size</IlcOptimizationPreference>
@@ -26,24 +26,32 @@
       published AOT binary as part of step 2 verification.
     -->
     <NoWarn>$(NoWarn);IL2104;IL3050;IL3053;IL3000</NoWarn>
+
+    <AssemblyTitle>SpawnSpotter</AssemblyTitle>
+    <Description>Win32 focus-change logger for Windows 11</Description>
   </PropertyGroup>
+
+  <!-- Only set self-contained / RID for publish. Build alone produces a normal framework-dependent dll/exe. -->
+  <PropertyGroup Condition="'$(_IsPublishing)' == 'true' or '$(IsPublishing)' == 'true' or '$(PublishAotPlease)' == 'true'">
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <!--
+    The main csproj sits at repo root and the SDK's default <Compile> glob is **/*.cs,
+    which would pick up tests/. Exclude tests explicitly to keep the boundaries clean.
+  -->
+  <ItemGroup>
+    <Compile Remove="tests\**" />
+    <Content Remove="tests\**" />
+    <None Remove="tests\**" />
+    <EmbeddedResource Remove="tests\**" />
+  </ItemGroup>
 
   <ItemGroup>
     <TrimmerRootAssembly Include="Spectre.Console.Cli" />
     <TrimmerRootAssembly Include="SpawnSpotter" />
   </ItemGroup>
-
-  <PropertyGroup>
-
-    <!-- Single-file output -->
-    <SelfContained>true</SelfContained>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <PublishSingleFile>false</PublishSingleFile>
-
-    <!-- Required so the produced exe is named SpawnSpotter.exe -->
-    <AssemblyTitle>SpawnSpotter</AssemblyTitle>
-    <Description>Win32 focus-change logger for Windows 11</Description>
-  </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Spectre.Console" />
