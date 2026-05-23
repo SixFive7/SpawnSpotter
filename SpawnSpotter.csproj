@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>SpawnSpotter</RootNamespace>
+    <AssemblyName>SpawnSpotter</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsAsErrors />
+
+    <!-- AOT settings -->
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <IlcOptimizationPreference>Size</IlcOptimizationPreference>
+    <StripSymbols>true</StripSymbols>
+
+    <!--
+      Spectre.Console.Cli 0.55 emits AOT/trim warnings (IL2104, IL3050, IL3053, IL3000) under
+      Native AOT, even though the strongly-typed CommandSettings surface we use does not exercise
+      the dynamic-reflection paths at runtime. Plan section 3 and risk row anticipate this. We pin
+      a known-good version, suppress the warnings, and verify command dispatch in the
+      published AOT binary as part of step 2 verification.
+    -->
+    <NoWarn>$(NoWarn);IL2104;IL3050;IL3053;IL3000</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <TrimmerRootAssembly Include="Spectre.Console.Cli" />
+    <TrimmerRootAssembly Include="SpawnSpotter" />
+  </ItemGroup>
+
+  <PropertyGroup>
+
+    <!-- Single-file output -->
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishSingleFile>false</PublishSingleFile>
+
+    <!-- Required so the produced exe is named SpawnSpotter.exe -->
+    <AssemblyTitle>SpawnSpotter</AssemblyTitle>
+    <Description>Win32 focus-change logger for Windows 11</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Spectre.Console" />
+    <PackageReference Include="Spectre.Console.Cli" />
+  </ItemGroup>
+
+</Project>

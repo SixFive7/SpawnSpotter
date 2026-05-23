@@ -1,0 +1,108 @@
+using System.ComponentModel;
+using Spectre.Console.Cli;
+
+namespace SpawnSpotter.Cli;
+
+/// <summary>
+/// CLI settings for the <c>watch</c> command. Defaults shown here match plan §5.9.
+/// </summary>
+public sealed class WatchSettings : CommandSettings
+{
+    [CommandOption("--log-dir <PATH>")]
+    [Description("Output directory (created if missing). Default: %LOCALAPPDATA%\\SpawnSpotter\\logs")]
+    public string? LogDir { get; init; }
+
+    [CommandOption("-f|--format <LIST>")]
+    [Description("Comma-separated subset of csv,jsonl,logfmt,md,log,html. Default: csv,jsonl")]
+    public string Format { get; init; } = "csv,jsonl";
+
+    [CommandOption("-m|--mode <MODE>")]
+    [Description("One of: interactive, silent, status-only. Default: interactive")]
+    public string Mode { get; init; } = "interactive";
+
+    [CommandOption("-d|--duration <SPAN>")]
+    [Description("Auto-stop after this duration. Examples: 90s, 45m, 2h, 1d, 2h30m. Default: unset (runs forever)")]
+    [TypeConverter(typeof(DurationConverter))]
+    public TimeSpan? Duration { get; init; }
+
+    [CommandOption("--max-steals <N>")]
+    [Description("Stop cleanly after N STEAL events have been logged. Combines with --duration (whichever first wins)")]
+    public int? MaxSteals { get; init; }
+
+    [CommandOption("-v|--verbosity <LEVEL>")]
+    [Description("Verbosity 0..3. 0=STEAL+SESSION_LOCK only, 1=+USER_*, 2=+diagnostics, 3=+raw event stream. Default: 0")]
+    public int Verbosity { get; init; } = 0;
+
+    [CommandOption("--threshold-ms <INT>")]
+    [Description("Classifier threshold across all input sources in ms. Default: 500")]
+    public int ThresholdMs { get; init; } = 500;
+
+    [CommandOption("--threshold-alt-tab-ms <INT>")]
+    [Description("Override for Alt+Tab only. Default: equal to --threshold-ms")]
+    public int? ThresholdAltTabMs { get; init; }
+
+    [CommandOption("--threshold-click-ms <INT>")]
+    [Description("Override for click only. Default: equal to --threshold-ms")]
+    public int? ThresholdClickMs { get; init; }
+
+    [CommandOption("--threshold-other-ms <INT>")]
+    [Description("Override for other-system only. Default: equal to --threshold-ms")]
+    public int? ThresholdOtherMs { get; init; }
+
+    [CommandOption("--dedupe-window-ms <INT>")]
+    [Description("Same-HWND duplicate suppression window in ms across all three WinEvent sources. Default: 50")]
+    public int DedupeWindowMs { get; init; } = 50;
+
+    [CommandOption("--max-chain-depth <INT>")]
+    [Description("Parent-chain walker safety cap. Default: 20")]
+    public int MaxChainDepth { get; init; } = 20;
+
+    [CommandOption("--ignore-class <PATTERN>")]
+    [Description("Glob pattern matched against the new window's class name. Drops matching events. Repeatable")]
+    public string[] IgnoreClass { get; init; } = [];
+
+    [CommandOption("--ignore-image <PATTERN>")]
+    [Description("Glob pattern matched against the focused process's image basename. Drops matching events. Repeatable")]
+    public string[] IgnoreImage { get; init; } = [];
+
+    [CommandOption("--locked-hwnd-ttl-min <INT>")]
+    [Description("Minutes of no user input after which the LockedHwnd anchor is cleared. 0 disables. Default: 5")]
+    public int LockedHwndTtlMin { get; init; } = 5;
+
+    [CommandOption("--capture-env")]
+    [Description("Capture full per-process env (KEY=VALUE) into JSONL chain nodes. WARNING: secrets land in logs. Default: off")]
+    public bool CaptureEnv { get; init; }
+
+    public override Spectre.Console.ValidationResult Validate()
+    {
+        if (Verbosity < 0 || Verbosity > 3)
+        {
+            return Spectre.Console.ValidationResult.Error("--verbosity must be between 0 and 3");
+        }
+        if (ThresholdMs <= 0)
+        {
+            return Spectre.Console.ValidationResult.Error("--threshold-ms must be > 0");
+        }
+        if (DedupeWindowMs < 0)
+        {
+            return Spectre.Console.ValidationResult.Error("--dedupe-window-ms must be >= 0");
+        }
+        if (MaxChainDepth <= 0)
+        {
+            return Spectre.Console.ValidationResult.Error("--max-chain-depth must be > 0");
+        }
+        if (LockedHwndTtlMin < 0)
+        {
+            return Spectre.Console.ValidationResult.Error("--locked-hwnd-ttl-min must be >= 0");
+        }
+        if (MaxSteals is <= 0)
+        {
+            return Spectre.Console.ValidationResult.Error("--max-steals must be > 0 if set");
+        }
+        if (Mode is not ("interactive" or "silent" or "status-only"))
+        {
+            return Spectre.Console.ValidationResult.Error("--mode must be one of: interactive, silent, status-only");
+        }
+        return base.Validate();
+    }
+}
