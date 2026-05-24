@@ -103,4 +103,21 @@ public class KeyCategorizerTests
         // 0xFA is unassigned; should hit the default branch.
         await Assert.That(KeyCategorizer.Categorize(0xFA, anyModifierDown: false)).IsEqualTo(KeyCategory.Other);
     }
+
+    [Test]
+    [Arguments((uint)0xB0)] // VK_MEDIA_NEXT_TRACK
+    [Arguments((uint)0xB1)] // VK_MEDIA_PREV_TRACK
+    [Arguments((uint)0xB2)] // VK_MEDIA_STOP
+    [Arguments((uint)0xB3)] // VK_MEDIA_PLAY_PAUSE
+    [Arguments((uint)0xAD)] // VK_VOLUME_MUTE
+    [Arguments((uint)0xAE)] // VK_VOLUME_DOWN
+    [Arguments((uint)0xAF)] // VK_VOLUME_UP
+    [Arguments((uint)0xA6)] // VK_BROWSER_BACK
+    public async Task MediaAndBrowserKeys_AreCategorizedAsOther(uint vk)
+    {
+        // Per plan section 5.3: media/browser keys aren't text and aren't navigation —
+        // they fall through to the Other bucket so the keyboard hook can record an
+        // "input happened" tick without revealing what was pressed.
+        await Assert.That(KeyCategorizer.Categorize(vk, anyModifierDown: false)).IsEqualTo(KeyCategory.Other);
+    }
 }

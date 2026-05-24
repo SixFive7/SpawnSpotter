@@ -36,4 +36,30 @@ public class GlobMatcherTests
         var patterns = new[] { "foo", "bar*", "baz" };
         await Assert.That(GlobMatcher.MatchesAny("baroque", patterns)).IsTrue();
     }
+
+    // ---- Question-mark wildcard semantics (plan section 5.5 step 3) ----------
+    // `?` must match EXACTLY ONE character — not zero, not many.
+
+    [Test]
+    [Arguments("a?c", "abc", true)]   // one char in middle
+    [Arguments("a?c", "axc", true)]   // any one char
+    [Arguments("a?c", "abbc", false)] // ? is one char, not many
+    [Arguments("a?c", "ac", false)]   // ? requires one char, not zero
+    public async Task QuestionMark_MatchesExactlyOneChar(string pattern, string text, bool expected)
+    {
+        await Assert.That(GlobMatcher.Match(text.AsSpan(), pattern.AsSpan())).IsEqualTo(expected);
+    }
+
+    // ---- Anchoring at both ends ---------------------------------------------
+    // A literal pattern matches the full text only. `"foo"` against `"foobar"` MUST be false.
+
+    [Test]
+    [Arguments("foo", "foobar", false)]
+    [Arguments("foo", "barfoo", false)]
+    [Arguments("foo", "foo", true)]
+    [Arguments("*chrome*", "my-chrome-window", true)] // double-anchored wildcard from plan
+    public async Task Match_IsAnchoredAtBothEnds(string pattern, string text, bool expected)
+    {
+        await Assert.That(GlobMatcher.Match(text.AsSpan(), pattern.AsSpan())).IsEqualTo(expected);
+    }
 }

@@ -23,9 +23,13 @@ public class DurationConverterTests
     [Arguments("0s")]
     [Arguments("0")]
     [Arguments("-1h")]
+    [Arguments("-5m")]
     [Arguments("")]
     [Arguments("2x")]
     [Arguments("abc")]
+    [Arguments("5")]         // positive integer with no unit suffix
+    [Arguments("90")]        // ditto, larger number
+    [Arguments("90 ")]       // trailing whitespace alone is not a unit
     public async Task Parse_Rejects(string input)
     {
         var ok = DurationConverter.TryParse(input, out _, out var error);

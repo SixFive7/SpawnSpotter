@@ -238,4 +238,181 @@ public class FocusClassifierTests
         await Assert.That(r.LockedHwndBefore).IsEqualTo(IntPtr.Zero);
         await Assert.That(r.LockedPidBefore).IsEqualTo(0u);
     }
+
+    // -------------------------------------------------------------------------
+    // Per-source threshold overrides (plan section 5.9: --threshold-click-ms,
+    // --threshold-alttab-ms, --threshold-other-ms can each differ from the
+    // global --threshold-ms).
+    // -------------------------------------------------------------------------
+
+    [Test]
+    public async Task ClickThresholdOverride_LongerWindow_StillUserClick()
+    {
+        // Default click threshold 500ms would reject 800ms-old click. With override
+        // bumped to 1500ms, the same input should classify as USER_CLICK.
+        var cfg = DefaultCfg with { ClickThresholdMs = 1500 };
+        var input = Base(100_000) with { LastMouseDownTickMs = 99_200 }; // 800 ms ago
+        var r = FocusClassifier.Classify(input, cfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.UserClick);
+    }
+
+    [Test]
+    public async Task ClickThresholdOverride_ShorterWindow_FallsThroughToSteal()
+    {
+        // Override click threshold to a very tight 50ms — a 100ms-old click should
+        // no longer count and the event should be STEAL.
+        var cfg = DefaultCfg with { ClickThresholdMs = 50 };
+        var input = Base(100_000) with { LastMouseDownTickMs = 99_900 }; // 100 ms ago
+        var r = FocusClassifier.Classify(input, cfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.Steal);
+    }
+
+    [Test]
+    public async Task AltTabThresholdOverride_DifferentFromClickThreshold()
+    {
+        // Alt-tab threshold large, click threshold small. A 600ms-old alt-tab and a
+        // 600ms-old click both arrive; only the alt-tab should still be in-window.
+        var cfg = DefaultCfg with { AltTabThresholdMs = 1000, ClickThresholdMs = 100 };
+        var input = Base(100_000) with
+        {
+            LastAltTabReleaseTickMs = 99_400, // 600 ms ago, in-window for alt-tab only
+            LastMouseDownTickMs = 99_400,     // 600 ms ago, out-of-window for click
+        };
+        var r = FocusClassifier.Classify(input, cfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.UserAltTab);
+    }
+
+    [Test]
+    public async Task OtherThresholdOverride_IndependentFromClickAndAltTab()
+    {
+        // Only OtherThresholdMs is bumped; a 700ms-old "other system key" should classify
+        // as USER_OTHER even though the default 500ms would call it STEAL.
+        var cfg = DefaultCfg with { OtherThresholdMs = 1000 };
+        var input = Base(100_000) with { LastOtherSystemKeyReleaseTickMs = 99_300 }; // 700 ms ago
+        var r = FocusClassifier.Classify(input, cfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.UserOther);
+    }
+
+    // -------------------------------------------------------------------------
+    // Pipeline ordering: SESSION_LOCK > MonitorSuppress > ignore filters > standard
+    // (plan section 5.5). When two steps could match, the earlier one must win.
+    // -------------------------------------------------------------------------
+
+    [Test]
+    public async Task PipelineOrder_SessionLockBeatsMonitorSuppress()
+    {
+        // Monitor suppression window is active AND the new foreground is LogonUI.
+        // SESSION_LOCK must win (it's pipeline step 1).
+        var input = Base(100_000) with
+        {
+            MonitorSuppressUntilTickMs = 101_000, // would otherwise produce USER_OTHER
+            ImageBasename = "LogonUI.exe",
+            ImagePath = @"C:\Windows\System32\LogonUI.exe",
+            WindowClass = "LockScreenBackstopFrame",
+        };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.SessionLock);
+        await Assert.That(r.Note).IsNotEqualTo("monitor topology change");
+    }
+
+    [Test]
+    public async Task PipelineOrder_MonitorSuppressBeatsIgnoreFilters()
+    {
+        // Both monitor suppression is active AND the window class matches an ignore-glob.
+        // MonitorSuppress (step 2) must win over ignore filters (step 3): the result
+        // should be USER_OTHER with the topology note, NOT a silent drop.
+        var cfg = DefaultCfg with { IgnoreClassGlobs = ["ConsoleWindowClass"] };
+        var input = Base(100_000) with { MonitorSuppressUntilTickMs = 101_000 };
+        var r = FocusClassifier.Classify(input, cfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.UserOther);
+        await Assert.That(r.Note).IsEqualTo("monitor topology change");
+        await Assert.That(r.DropFromLog).IsFalse();
+    }
+
+    [Test]
+    public async Task PipelineOrder_IgnoreFiltersBeatStandardClassification_UserClickCase()
+    {
+        // A fresh mouse-down would normally classify as USER_CLICK, but the ignore-image
+        // matches — pipeline step 3 must still drop the event silently.
+        var cfg = DefaultCfg with { IgnoreImageGlobs = ["cmd.exe"] };
+        var input = Base(100_000) with { LastMouseDownTickMs = 99_900 }; // 100 ms ago
+        var r = FocusClassifier.Classify(input, cfg);
+        await Assert.That(r.DropFromLog).IsTrue();
+    }
+
+    [Test]
+    public async Task PipelineOrder_IgnoreFiltersBeatStandardClassification_StealCase()
+    {
+        // No recent input → standard classification would be STEAL, but ignore-class
+        // matches → silent drop. We assert DropFromLog regardless of the placeholder
+        // Classification value (currently UserOther; the consumer never emits the row).
+        var cfg = DefaultCfg with { IgnoreClassGlobs = ["ConsoleWindowClass"] };
+        var r = FocusClassifier.Classify(Base(), cfg);
+        await Assert.That(r.DropFromLog).IsTrue();
+        await Assert.That(r.UpdateLockedAnchor).IsFalse();
+    }
+
+    // -------------------------------------------------------------------------
+    // Startup-init behavior (plan section 5.5 LockedHwnd robustness):
+    // before any USER_* event is seen, the caller seeds LockedHwnd from
+    // GetForegroundWindow(). The classifier itself just reports whatever anchor
+    // is passed in; this test pins the contract.
+    // -------------------------------------------------------------------------
+
+    [Test]
+    public async Task Startup_StealEvent_ReportsSeededAnchorAsLockedHwndBefore()
+    {
+        // Simulate the very first focus change after start-up: no prior input deltas,
+        // but the anchor has been seeded by the caller from GetForegroundWindow().
+        var input = Base(100_000) with
+        {
+            // No recent user input — would normally be STEAL.
+            LastAltTabReleaseTickMs = 0,
+            LastMouseDownTickMs = 0,
+            LastOtherSystemKeyReleaseTickMs = 0,
+            // Seeded anchor from GetForegroundWindow() at startup.
+            LockedHwnd = (IntPtr)0xBEEF,
+            LockedPid = 4242,
+            LockedAtTickMs = 99_500, // 500 ms ago, well inside TTL
+            LockedHwndIsAlive = true,
+        };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.Steal);
+        await Assert.That(r.LockedHwndBefore).IsEqualTo((IntPtr)0xBEEF);
+        await Assert.That(r.LockedPidBefore).IsEqualTo(4242u);
+        await Assert.That(r.UpdateLockedAnchor).IsFalse();
+    }
+
+    // -------------------------------------------------------------------------
+    // Anchor-update bookkeeping for USER_* (plan section 5.5):
+    // every USER_* event must signal UpdateLockedAnchor=true so the caller can
+    // refresh the in-memory anchor to the new foreground.
+    // -------------------------------------------------------------------------
+
+    [Test]
+    public async Task UserAltTab_SignalsAnchorUpdate()
+    {
+        var input = Base(100_000) with { LastAltTabReleaseTickMs = 99_900 };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.UserAltTab);
+        await Assert.That(r.UpdateLockedAnchor).IsTrue();
+    }
+
+    [Test]
+    public async Task UserClick_SignalsAnchorUpdate()
+    {
+        var input = Base(100_000) with { LastMouseDownTickMs = 99_900 };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.UserClick);
+        await Assert.That(r.UpdateLockedAnchor).IsTrue();
+    }
+
+    [Test]
+    public async Task UserOther_SignalsAnchorUpdate()
+    {
+        var input = Base(100_000) with { LastOtherSystemKeyReleaseTickMs = 99_900 };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.UserOther);
+        await Assert.That(r.UpdateLockedAnchor).IsTrue();
+    }
 }
