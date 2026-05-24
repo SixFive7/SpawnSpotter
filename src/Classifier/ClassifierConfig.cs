@@ -9,6 +9,7 @@ public sealed record ClassifierConfig(
     int ClickThresholdMs,
     int OtherThresholdMs,
     int LockedHwndTtlMinutes,
+    int MaxChainDepth,
     IReadOnlyList<string> IgnoreClassGlobs,
     IReadOnlyList<string> IgnoreImageGlobs)
 {
@@ -17,6 +18,7 @@ public sealed record ClassifierConfig(
         ClickThresholdMs: 500,
         OtherThresholdMs: 500,
         LockedHwndTtlMinutes: 5,
+        MaxChainDepth: 20,
         IgnoreClassGlobs: [],
         IgnoreImageGlobs: []);
 }

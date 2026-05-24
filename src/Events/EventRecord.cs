@@ -1,0 +1,37 @@
+namespace SpawnSpotter.Events;
+
+/// <summary>
+/// The canonical in-memory representation of a logged event. All exporters
+/// (CSV / JSONL / logfmt / Markdown / plain text / HTML) encode from this record.
+/// Plan section 5.7 schema; decision #26.
+/// </summary>
+public sealed record EventRecord(
+    DateTime TimestampUtc,
+    Classification Classification,
+    MonitoredVia MonitoredVia,
+    IntPtr Hwnd,
+    string WindowClass,
+    string WindowTitle,
+    uint FocusedPid,
+    IReadOnlyList<ChainNode> ParentChain,
+    long KeyAgeMs,
+    long MouseAgeMs,
+    long IdleTimeMs,
+    IntPtr LockedHwndBefore,
+    uint LockedPidBefore,
+    string Note);
+
+/// <summary>
+/// One node of the parent-process chain. Plan section 5.6.
+/// </summary>
+public sealed record ChainNode(
+    uint Pid,
+    string ImagePath,
+    string ImageBasename,
+    string CommandLine,
+    string CurrentDirectory,
+    string? PackageAumi,
+    IReadOnlyDictionary<string, string>? Environment,
+    uint ParentPid,
+    string? Note);
+
