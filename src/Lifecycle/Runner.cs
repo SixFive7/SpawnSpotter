@@ -39,10 +39,15 @@ public sealed class Runner(WatchSettings settings)
         try
         {
             WinEventHooks.Install();
+            KeyboardHook.Install();
+            MouseHook.Install();
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"Failed to install hooks: {ex.Message}");
+            MouseHook.Uninstall();
+            KeyboardHook.Uninstall();
+            WinEventHooks.Uninstall();
             MessageLoop.Stop();
             return 1;
         }
@@ -56,6 +61,8 @@ public sealed class Runner(WatchSettings settings)
             // Ctrl+C / cooperative shutdown
         }
 
+        MouseHook.Uninstall();
+        KeyboardHook.Uninstall();
         WinEventHooks.Uninstall();
         MessageLoop.Stop();
         return 0;
