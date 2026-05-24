@@ -64,14 +64,6 @@ internal static class InputState
         set => Volatile.Write(ref s_lastOtherSystemKeyReleaseTickMs, value);
     }
 
-    // ---- Last category (for diagnostics / classifier hints) ---------------
-    private static int s_lastKeyCategory = (int)KeyCategory.Other;
-    public static KeyCategory LastKeyCategory
-    {
-        get => (KeyCategory)Volatile.Read(ref s_lastKeyCategory);
-        set => Volatile.Write(ref s_lastKeyCategory, (int)value);
-    }
-
     /// <summary>
     /// Reset all state to zero. Test-only.
     /// </summary>
@@ -85,6 +77,5 @@ internal static class InputState
         Volatile.Write(ref s_lastMouseDownTickMs, 0);
         Volatile.Write(ref s_lastAltTabReleaseTickMs, 0);
         Volatile.Write(ref s_lastOtherSystemKeyReleaseTickMs, 0);
-        Volatile.Write(ref s_lastKeyCategory, (int)KeyCategory.Other);
     }
 }

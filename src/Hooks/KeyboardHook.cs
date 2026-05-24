@@ -57,9 +57,7 @@ internal static unsafe class KeyboardHook
         // stash it. The local variable `vk` falls out of scope at the end of this method.
         if (!isUp)
         {
-            // Down event — bump last-key timestamp + remember category for diagnostics.
             InputState.LastKeyTickMs = nowMs;
-            InputState.LastKeyCategory = category;
         }
         else
         {

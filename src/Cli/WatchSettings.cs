@@ -30,7 +30,7 @@ public sealed class WatchSettings : CommandSettings
     public int? MaxSteals { get; init; }
 
     [CommandOption("-v|--verbosity <LEVEL>")]
-    [Description("Verbosity 0..3. 0=STEAL+SESSION_LOCK only, 1=+USER_*, 2=+diagnostics, 3=+raw event stream. Default: 0")]
+    [Description("Verbosity 0..3. 0=STEAL+SESSION_LOCK only, 1=+USER_*, 2=+diagnostics, 3=+raw event stream (key categories only — never key contents). Default: 0")]
     public int Verbosity { get; init; } = 0;
 
     [CommandOption("--threshold-ms <INT>")]
