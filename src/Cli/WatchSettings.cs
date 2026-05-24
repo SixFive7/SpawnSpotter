@@ -73,6 +73,10 @@ public sealed class WatchSettings : CommandSettings
     [Description("Capture full per-process env (KEY=VALUE) into JSONL chain nodes. WARNING: secrets land in logs. Default: off")]
     public bool CaptureEnv { get; init; }
 
+    [CommandOption("--enricher-workers <N>")]
+    [Description("Parallel enrichment worker count. Default: Math.Max(2, Environment.ProcessorCount / 4)")]
+    public int? EnricherWorkers { get; init; }
+
     public override Spectre.Console.ValidationResult Validate()
     {
         if (Verbosity < 0 || Verbosity > 3)
@@ -98,6 +102,10 @@ public sealed class WatchSettings : CommandSettings
         if (MaxSteals is <= 0)
         {
             return Spectre.Console.ValidationResult.Error("--max-steals must be > 0 if set");
+        }
+        if (EnricherWorkers is <= 0)
+        {
+            return Spectre.Console.ValidationResult.Error("--enricher-workers must be > 0 if set");
         }
         if (Mode is not ("interactive" or "silent" or "status-only"))
         {

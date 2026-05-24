@@ -10,7 +10,7 @@ namespace SpawnSpotter.Lifecycle;
 
 /// <summary>
 /// Top-level lifecycle orchestrator. Glue between CLI settings, message loop, hooks,
-/// channel/consumer, exporters, console UX, --duration / --max-steals timers, and graceful
+/// enrichment pipeline, exporters, console UX, --duration / --max-steals timers, and graceful
 /// shutdown with exit summary + HTML report.
 /// </summary>
 public sealed class Runner(WatchSettings settings)
@@ -29,8 +29,6 @@ public sealed class Runner(WatchSettings settings)
             IgnoreClassGlobs: _settings.IgnoreClass,
             IgnoreImageGlobs: _settings.IgnoreImage);
 
-        WinEventHooks.CaptureEnvForSnapshot = _settings.CaptureEnv;
-
         var logDir = LogDirectory.Resolve(_settings.LogDir);
         var formats = (_settings.Format ?? "csv,jsonl").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var includeHtml = formats.Any(f => string.Equals(f, "html", StringComparison.OrdinalIgnoreCase));
@@ -41,25 +39,17 @@ public sealed class Runner(WatchSettings settings)
         var inMemoryAll = new List<EventRecord>(1024);
         var inMemoryGate = new object();
 
-        // ---------------- Start STA message loop ----------------
-        try
-        {
-            MessageLoop.Start();
-        }
-        catch (Exception ex)
-        {
-            System.Console.Error.WriteLine($"Failed to start message loop: {ex.Message}");
-            return 1;
-        }
-
-        // ---------------- Consumer + console UX ----------------
-        var consumer = new Consumer(classifierConfig, _settings.DedupeWindowMs, _settings.CaptureEnv);
-        var ux = new ConsoleUx(_settings, consumer.Stats);
-
-        // Shutdown CTS combining external + duration + max-steals.
+        // ---------------- Shutdown CTS combining external + duration + max-steals ----------------
         using var shutdownCts = CancellationTokenSource.CreateLinkedTokenSource(externalCancellation);
 
-        consumer.OnRecord = ev =>
+        // ---------------- Counters + console UX ----------------
+        var counters = new Counters();
+        var ux = new ConsoleUx(_settings, counters);
+
+        // ---------------- Build + start enrichment pipeline ----------------
+        var enricherWorkers = _settings.EnricherWorkers ?? Math.Max(2, Environment.ProcessorCount / 4);
+
+        Action<EventRecord> onRecord = ev =>
         {
             // Verbosity filter at the source (plan 5.8): events below threshold are NOT recorded.
             if (!ux.ShouldShowEvent(ev.Classification))
@@ -72,18 +62,40 @@ public sealed class Runner(WatchSettings settings)
 
             // --max-steals early termination
             if (_settings.MaxSteals is { } limit && ev.Classification == Classification.Steal
-                && consumer.Stats.Steal >= limit)
+                && counters.Steal >= limit)
             {
                 shutdownCts.Cancel();
             }
         };
-        consumer.OnDiagnostic = ev =>
+        Action<EventRecord> onDiagnostic = ev =>
         {
             if (!ux.ShouldShowDiagnostic()) { return; }
             System.Console.WriteLine($"[diag] {ev.TimestampUtc:HH:mm:ss.fff}Z {ev.Note} hwnd=0x{ev.Hwnd.ToInt64():X}");
         };
 
-        var consumerTask = Task.Run(() => consumer.RunAsync(shutdownCts.Token), CancellationToken.None);
+        var pipeline = new EnrichmentPipeline(
+            config: classifierConfig,
+            enricherWorkers: enricherWorkers,
+            dedupeWindowMs: _settings.DedupeWindowMs,
+            captureEnv: _settings.CaptureEnv,
+            onRecord: onRecord,
+            onDiagnostic: onDiagnostic,
+            stats: counters);
+
+        pipeline.Start(shutdownCts.Token);
+        WinEventHooks.SetPipeline(pipeline);
+
+        // ---------------- Start STA message loop ----------------
+        try
+        {
+            MessageLoop.Start();
+        }
+        catch (Exception ex)
+        {
+            System.Console.Error.WriteLine($"Failed to start message loop: {ex.Message}");
+            await pipeline.StopAsync().ConfigureAwait(false);
+            return 1;
+        }
 
         // ---------------- Install hooks ----------------
         try
@@ -98,9 +110,7 @@ public sealed class Runner(WatchSettings settings)
             MouseHook.Uninstall();
             KeyboardHook.Uninstall();
             WinEventHooks.Uninstall();
-            shutdownCts.Cancel();
-            EventChannel.Complete();
-            try { await consumerTask.ConfigureAwait(false); } catch { }
+            await pipeline.StopAsync().ConfigureAwait(false);
             MessageLoop.Stop();
             return 1;
         }
@@ -138,11 +148,12 @@ public sealed class Runner(WatchSettings settings)
         catch (OperationCanceledException) { }
 
         // ---------------- Graceful shutdown ----------------
+        // Uninstall hooks first so no new events flow into the pipeline.
         MouseHook.Uninstall();
         KeyboardHook.Uninstall();
         WinEventHooks.Uninstall();
-        EventChannel.Complete();
-        try { await consumerTask.ConfigureAwait(false); } catch { }
+        // Then drain the pipeline: complete input, wait for sink to finish all in-flight events.
+        await pipeline.StopAsync().ConfigureAwait(false);
         await exporters.FlushAllAsync().ConfigureAwait(false);
         await exporters.DisposeAsync().ConfigureAwait(false);
         MessageLoop.Stop();
