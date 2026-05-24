@@ -22,6 +22,22 @@ internal static class Program
                   .WithDescription("Start logging involuntary focus changes.");
             config.AddCommand<VersionCommand>("version")
                   .WithDescription("Print version and exit.");
+
+            // Plan section 5.8 exit codes:
+            //   0  - graceful shutdown
+            //   1  - startup error (hooks failed)
+            //   2  - bad CLI args
+            //   non-zero - unhandled exception
+            config.SetExceptionHandler((ex, _) =>
+            {
+                Console.Error.WriteLine(ex.Message);
+                return ex switch
+                {
+                    Spectre.Console.Cli.CommandParseException => 2,
+                    Spectre.Console.Cli.CommandRuntimeException => 2,
+                    _ => 64,
+                };
+            });
         });
 
         // Bare invocation (no args) prints help and exits 0 — per plan §5.9 / decision #13.

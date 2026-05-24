@@ -42,6 +42,7 @@ public sealed class JsonChainNode
 
 [JsonSerializable(typeof(JsonEvent))]
 [JsonSerializable(typeof(JsonChainNode))]
+[JsonSerializable(typeof(List<JsonEvent>))]
 [JsonSourceGenerationOptions(WriteIndented = false, DefaultIgnoreCondition = JsonIgnoreCondition.Never)]
 public partial class JsonExportContext : JsonSerializerContext
 {

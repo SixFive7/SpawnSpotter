@@ -1,15 +1,17 @@
-using System.Globalization;
 using SpawnSpotter.Cli;
 using SpawnSpotter.Classifier;
+using SpawnSpotter.Ui;
 using SpawnSpotter.Events;
+using SpawnSpotter.Export;
 using SpawnSpotter.Hooks;
 using SpawnSpotter.Pipeline;
 
 namespace SpawnSpotter.Lifecycle;
 
 /// <summary>
-/// Top-level lifecycle orchestrator. Wires message loop + hooks + channel consumer.
-/// Step 11 adds exporters; step 13 adds console UX + --duration + --max-steals + summary.
+/// Top-level lifecycle orchestrator. Glue between CLI settings, message loop, hooks,
+/// channel/consumer, exporters, console UX, --duration / --max-steals timers, and graceful
+/// shutdown with exit summary + HTML report.
 /// </summary>
 public sealed class Runner(WatchSettings settings)
 {
@@ -17,7 +19,7 @@ public sealed class Runner(WatchSettings settings)
 
     public async Task<int> RunAsync(CancellationToken externalCancellation)
     {
-        // Build classifier config from settings.
+        // ---------------- Configure ----------------
         var classifierConfig = new ClassifierConfig(
             AltTabThresholdMs: _settings.ThresholdAltTabMs ?? _settings.ThresholdMs,
             ClickThresholdMs: _settings.ThresholdClickMs ?? _settings.ThresholdMs,
@@ -29,41 +31,61 @@ public sealed class Runner(WatchSettings settings)
 
         WinEventHooks.CaptureEnvForSnapshot = _settings.CaptureEnv;
 
-        // Start the STA message loop + hidden HWND first so hooks have a thread to run on.
+        var logDir = LogDirectory.Resolve(_settings.LogDir);
+        var formats = (_settings.Format ?? "csv,jsonl").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var includeHtml = formats.Any(f => string.Equals(f, "html", StringComparison.OrdinalIgnoreCase));
+
+        await using var exporters = new ExporterRegistry(logDir, formats);
+
+        // Capture every emitted record in memory for the HTML report (cheap; expected volume small).
+        var inMemoryAll = new List<EventRecord>(1024);
+        var inMemoryGate = new object();
+
+        // ---------------- Start STA message loop ----------------
         try
         {
             MessageLoop.Start();
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Failed to start message loop: {ex.Message}");
+            System.Console.Error.WriteLine($"Failed to start message loop: {ex.Message}");
             return 1;
         }
 
-        // Spin up the consumer task.
+        // ---------------- Consumer + console UX ----------------
         var consumer = new Consumer(classifierConfig, _settings.DedupeWindowMs, _settings.CaptureEnv);
+        var ux = new ConsoleUx(_settings, consumer.Stats);
+
+        // Shutdown CTS combining external + duration + max-steals.
+        using var shutdownCts = CancellationTokenSource.CreateLinkedTokenSource(externalCancellation);
+
         consumer.OnRecord = ev =>
         {
-            // Step 9 placeholder: emit a one-liner. Step 11 replaces with exporters.
-            if (_settings.Verbosity >= 0)
+            // Verbosity filter at the source (plan 5.8): events below threshold are NOT recorded.
+            if (!ux.ShouldShowEvent(ev.Classification))
             {
-                Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
-                    $"{ev.TimestampUtc:HH:mm:ss.fff}Z {ev.Classification.ToWireValue(),-12} pid={ev.FocusedPid} hwnd=0x{ev.Hwnd.ToInt64():X} class=\"{ev.WindowClass}\" title=\"{ev.WindowTitle}\""));
+                return;
+            }
+            lock (inMemoryGate) { inMemoryAll.Add(ev); }
+            _ = exporters.WriteAllAsync(ev).AsTask();
+            ux.HandleEvent(ev);
+
+            // --max-steals early termination
+            if (_settings.MaxSteals is { } limit && ev.Classification == Classification.Steal
+                && consumer.Stats.Steal >= limit)
+            {
+                shutdownCts.Cancel();
             }
         };
         consumer.OnDiagnostic = ev =>
         {
-            if (_settings.Verbosity >= 2)
-            {
-                Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
-                    $"[diag] {ev.TimestampUtc:HH:mm:ss.fff}Z {ev.Note} hwnd=0x{ev.Hwnd.ToInt64():X}"));
-            }
+            if (!ux.ShouldShowDiagnostic()) { return; }
+            System.Console.WriteLine($"[diag] {ev.TimestampUtc:HH:mm:ss.fff}Z {ev.Note} hwnd=0x{ev.Hwnd.ToInt64():X}");
         };
 
-        using var loopCts = CancellationTokenSource.CreateLinkedTokenSource(externalCancellation);
-        var consumerTask = Task.Run(() => consumer.RunAsync(loopCts.Token), CancellationToken.None);
+        var consumerTask = Task.Run(() => consumer.RunAsync(shutdownCts.Token), CancellationToken.None);
 
-        // Install hooks now.
+        // ---------------- Install hooks ----------------
         try
         {
             WinEventHooks.Install();
@@ -72,33 +94,83 @@ public sealed class Runner(WatchSettings settings)
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Failed to install hooks: {ex.Message}");
+            System.Console.Error.WriteLine($"Failed to install hooks: {ex.Message}");
             MouseHook.Uninstall();
             KeyboardHook.Uninstall();
             WinEventHooks.Uninstall();
-            loopCts.Cancel();
+            shutdownCts.Cancel();
             EventChannel.Complete();
-            try { await consumerTask.ConfigureAwait(false); } catch { /* ignore */ }
+            try { await consumerTask.ConfigureAwait(false); } catch { }
             MessageLoop.Stop();
             return 1;
         }
 
-        try
+        // ---------------- Duration timer ----------------
+        Task? durationTask = null;
+        if (_settings.Duration is { } dur)
         {
-            await Task.Delay(Timeout.Infinite, externalCancellation).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // Cooperative shutdown.
+            durationTask = Task.Delay(dur, shutdownCts.Token);
+            _ = durationTask.ContinueWith(_ => shutdownCts.Cancel(),
+                TaskContinuationOptions.OnlyOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously);
         }
 
-        // Graceful shutdown.
+        // ---------------- Status line ----------------
+        StatusLine? statusLine = null;
+        Task? statusTask = null;
+        if (ux.ShouldRenderStatusLine)
+        {
+            statusLine = new StatusLine();
+            statusTask = Task.Run(async () =>
+            {
+                while (!shutdownCts.IsCancellationRequested)
+                {
+                    statusLine.Render(ux.BuildStatusLine());
+                    try { await Task.Delay(1000, shutdownCts.Token).ConfigureAwait(false); } catch { break; }
+                }
+            }, CancellationToken.None);
+        }
+
+        // ---------------- Wait for shutdown ----------------
+        try
+        {
+            await Task.Delay(Timeout.Infinite, shutdownCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { }
+
+        // ---------------- Graceful shutdown ----------------
         MouseHook.Uninstall();
         KeyboardHook.Uninstall();
         WinEventHooks.Uninstall();
         EventChannel.Complete();
-        try { await consumerTask.ConfigureAwait(false); } catch { /* ignore */ }
+        try { await consumerTask.ConfigureAwait(false); } catch { }
+        await exporters.FlushAllAsync().ConfigureAwait(false);
+        await exporters.DisposeAsync().ConfigureAwait(false);
         MessageLoop.Stop();
+
+        if (statusLine is not null)
+        {
+            statusLine.Close();
+            try { if (statusTask is not null) await statusTask.ConfigureAwait(false); } catch { }
+        }
+
+        // ---------------- HTML report (always written on graceful shutdown) ----------------
+        try
+        {
+            var jsonlPath = LogDirectory.DailyPath(logDir, "jsonl");
+            var htmlPath = LogDirectory.DailyPath(logDir, "html");
+            List<EventRecord> snapshot;
+            lock (inMemoryGate) { snapshot = new List<EventRecord>(inMemoryAll); }
+            await HtmlReportWriter.WriteAsync(htmlPath, snapshot, File.Exists(jsonlPath) ? jsonlPath : null);
+        }
+        catch (Exception ex)
+        {
+            System.Console.Error.WriteLine($"HTML report write failed: {ex.Message}");
+        }
+
+        // ---------------- Exit summary (always) ----------------
+        System.Console.WriteLine(ux.BuildExitSummary(logDir));
+
+        _ = includeHtml;
         return 0;
     }
 }
