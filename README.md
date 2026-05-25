@@ -73,100 +73,123 @@ For a bounded run:
 
 ## Architecture
 
-Two design properties drive everything:
+Three design properties drive everything:
 
 1. **Hook callbacks must finish in microseconds.** Windows applies `LowLevelHooksTimeout` (default 300 ms) to `WH_KEYBOARD_LL` / `WH_MOUSE_LL`; an unresponsive hook makes the entire mouse feel sluggish. So all real work runs after the callback returns, off the hook thread.
 2. **Hooks must be owned by a thread with a message pump.** `SetWindowsHookEx` and `SetWinEventHook` with `WINEVENT_OUTOFCONTEXT` dispatch their callbacks via the installing thread's `GetMessage` loop. No pump = no callbacks fire.
+3. **The keyboard hook is a privacy boundary.** Raw `vkCode` is consumed inside the callback and discarded; nothing about a specific keystroke survives past the post.
 
-### Five hook threads, one per hook
+### Single producer thread
 
-Each of the five hooks runs on its own dedicated STA thread with its own message pump. A burst of events from one hook (e.g. `EVENT_OBJECT_SHOW` floods during popup activity) can never queue another hook's callbacks behind it.
-
-```
-+---------------------------+
-| SpawnSpotter.Mouse        |  WH_MOUSE_LL
-| (STA + GetMessage loop)   |  writes InputState.LastMouseDownTickMs
-+---------------------------+
-
-+---------------------------+
-| SpawnSpotter.Keyboard     |  WH_KEYBOARD_LL
-| (STA + GetMessage loop)   |  categorizes vkCode -> KeyCategory (privacy: vkCode
-+---------------------------+  discarded immediately) and writes timestamps
-
-+---------------------------+
-| SpawnSpotter.Foreground   |  EVENT_SYSTEM_FOREGROUND
-| (STA + GetMessage loop +  |  hidden HWND: WM_DISPLAYCHANGE / WM_DPICHANGED
-|  hidden HWND for monitor  |  --> writes MonitorSuppressUntilTickMs
-|  topology suppression)    |
-+---------------------------+
-
-+---------------------------+
-| SpawnSpotter.Show         |  EVENT_OBJECT_SHOW (filtered in-callback to
-| (STA + GetMessage loop)   |  top-level visible non-owned-popup windows)
-+---------------------------+
-
-+---------------------------+
-| SpawnSpotter.Focus        |  EVENT_OBJECT_FOCUS (same in-callback filter)
-| (STA + GetMessage loop)   |
-+---------------------------+
-```
-
-WH_MOUSE_LL and WH_KEYBOARD_LL only write timestamps to a lock-free `InputState` struct (read by the classifier). The three WinEvent hooks build a small `readonly struct RawHookEvent` (sequence#, tickMs, wall-clock UTC, hwnd, eventType) and post it to a shared `BufferBlock` via the Dataflow pipeline. Each callback returns in under a few microseconds.
-
-### Three-stage Dataflow pipeline
-
-WinEvent hook callbacks hand off to a TPL Dataflow pipeline whose stages run on the thread pool:
+All five hooks share one STA thread with one message pump. Callbacks are sub-microsecond by construction (categorize, stamp seq + tick + UTC, post to a Dataflow buffer) — so there's no benefit to per-hook threads, and one thread gives us strict seq-order at ingress (no inter-thread race where a preempted thread posts seq=42 after another thread posts seq=43).
 
 ```
-        +----------------------------------+
-        | BufferBlock<RawHookEvent>        |
-        | BoundedCapacity = 1024           |
-        | drop-on-full (counter increments)|
-        +----------------------------------+
-                        |
-                        v
-        +------------------------------------------+
-        | TransformBlock<RawHookEvent, EnrichedEvent>|
-        |   MaxDegreeOfParallelism = N             |
-        |     (default max(2, ProcessorCount/4))   |
-        |   EnsureOrdered = true                   |
-        |   BoundedCapacity = 1024                 |
-        |                                          |
-        | Per event:                               |
-        |   GetWindowThreadProcessId               |
-        |   GetClassNameW / GetWindowTextW         |
-        |   ProcessReader.TrySnapshot (focused PID)|
-        |   parent + ancestor chain walk           |
-        |     via NtQueryInformationProcess +      |
-        |     ReadProcessMemory PEB walk           |
-        +------------------------------------------+
-                        |
-              in original Seq# order
-                        |
-                        v
-        +------------------------------------------+
-        | ActionBlock<EnrichedEvent>               |
-        |   MaxDegreeOfParallelism = 1             |
-        |   EnsureOrdered = true                   |
-        |                                          |
-        | Per event (single-threaded, no locking): |
-        |   Cross-source dedupe (hwnd+tickMs)      |
-        |   Classifier pipeline:                   |
-        |     SESSION_LOCK override                |
-        |     monitor topology suppression         |
-        |     --ignore-class / --ignore-image      |
-        |     threshold classification             |
-        |       (USER_ALT_TAB / USER_CLICK /       |
-        |        USER_OTHER / STEAL)               |
-        |   LockedHwnd anchor bookkeeping          |
-        |   Fan-out to enabled exporters           |
-        +------------------------------------------+
-                        |
-                        v
-                  exporters
++---------------------------------------+
+| SpawnSpotter.Hooks (1 STA thread)     |
+| - GetMessage loop                     |
+| - Hidden HWND for WM_DISPLAYCHANGE /  |
+|   WM_DPICHANGED (monitor topology)    |
+|                                       |
+| Hosts:                                |
+|   - WH_MOUSE_LL                       |
+|   - WH_KEYBOARD_LL                    |
+|   - SetWinEventHook EVENT_SYSTEM_FOREGROUND |
+|   - SetWinEventHook EVENT_OBJECT_SHOW |
+|   - SetWinEventHook EVENT_OBJECT_FOCUS|
+|                                       |
+| Per callback: build readonly struct + |
+| Post via EventBus. No filtering /     |
+| enrichment / state-machine work here. |
+| (WH_MOUSE_LL drops WM_MOUSEMOVE       |
+| at the switch; WinEvent SHOW/FOCUS    |
+| drop non-top-level windows via cheap  |
+| in-process Win32 calls.)              |
++---------------------------------------+
 ```
 
-Stage 2 runs in parallel — multiple workers enrich events concurrently — but `EnsureOrdered = true` re-serializes the output back into original Seq# order before stage 3, so the classifier's state machine (dedupe, LockedHwnd updates) sees events in their real-time order.
+Each callback also captures the OS-recorded event time (`KBDLLHOOKSTRUCT.time`, `MSLLHOOKSTRUCT.time`, `dwmsEventTime`) and reconstructs the full 64-bit timestamp via unsigned rollback math, so the record's timestamp reflects when the OS observed the event rather than when our callback ran.
+
+### Unified pipeline (TPL Dataflow)
+
+Every event — keyboard, mouse, all three WinEvent kinds — flows through one pipeline. The classifier branches on the event kind: input events update its sink-local last-X timestamps; window events get dedup'd, classified, emitted.
+
+```
+        +------------------------------------------------+
+        | BufferBlock<RawHookEvent>                      |
+        | BoundedCapacity = 1024                         |
+        | All 5 hooks post here via EventBus             |
+        +------------------------------------------------+
+                                |
+                                v
+        +------------------------------------------------+
+        | TransformManyBlock<RawHookEvent, EnrichedEvent>|
+        |   MaxDegreeOfParallelism = N                   |
+        |     default = max(2, ProcessorCount/4)         |
+        |   EnsureOrdered = true                         |
+        |                                                |
+        | Per event, branches on Kind:                   |
+        |   Window event ->                              |
+        |     GetWindowThreadProcessId,                  |
+        |     GetClassNameW / GetWindowTextW,            |
+        |     ProcessReader.TrySnapshot (focused PID),   |
+        |     parent + ancestor chain walk               |
+        |     via NtQueryInformationProcess +            |
+        |     ReadProcessMemory PEB walk                 |
+        |   Input event -> passthrough                   |
+        |                                                |
+        | Pressure detection: on dequeue, if the buffer  |
+        | crossed 90% full (or back below 70%), prepend  |
+        | a PipelinePressureEnter/Clear event to the     |
+        | output for this input.                         |
+        +------------------------------------------------+
+                                |
+                    in original Seq# order
+                                |
+                                v
+        +------------------------------------------------+
+        | ActionBlock<EnrichedEvent>                     |
+        |   MaxDegreeOfParallelism = 1                   |
+        |   EnsureOrdered = true                         |
+        |                                                |
+        | Per event, branches on Kind:                   |
+        |   Input event ->                               |
+        |     update last-X tick (key / mouse-down /     |
+        |     alt-tab / system-key)                      |
+        |   Window event ->                              |
+        |     dedupe (hwnd + tickMs window),             |
+        |     classify (SESSION_LOCK / monitor-topology /|
+        |       ignore-glob / threshold-based),          |
+        |     update locked-anchor bookkeeping,          |
+        |     post EventRecord to broadcast              |
+        |   Pressure event ->                            |
+        |     emit PIPELINE_PRESSURE record to broadcast |
+        +------------------------------------------------+
+                                |
+                                v
+        +------------------------------------------------+
+        | BroadcastBlock<EventRecord>                    |
+        |   identity clone (records are immutable)       |
+        +------------------------------------------------+
+                                |
+                                v
+                One ActionBlock per consumer (DOP=1):
+                  - Console UX (per-event lines + status)
+                  - CSV exporter
+                  - JSONL exporter
+                  - logfmt exporter
+                  - Markdown exporter
+                  - Plain-text exporter
+                  - HTML in-memory accumulator
+                  - Shutdown-watcher (--max-steals)
+
+                Each consumer has its own queue and back-pressure
+                boundary; a slow exporter cannot delay the others.
+                Per-consumer verbosity filtering via LinkTo predicate.
+```
+
+`EnsureOrdered = true` on the parallel enricher means output order equals input order even when one worker finishes a 10 ms enrichment while another finishes a sub-µs passthrough — the fast one waits for the slow one. The classifier sees events in true seq-order (= post-order = real-time order, since posts are serialized through one producer thread).
+
+No reorder buffer, no timing window, no merge race. The ordering correctness is structural.
 
 ### Native AOT
 
@@ -174,15 +197,20 @@ Stage 2 runs in parallel — multiple workers enrich events concurrently — but
 
 ### Privacy
 
-`WH_KEYBOARD_LL` sees every keystroke on the system, including passwords and tokens. The hook callback:
+`WH_KEYBOARD_LL` sees every keystroke on the system, including passwords and tokens. The callback's job is to be the privacy boundary:
 
 1. Reads `VkCode` from `KBDLLHOOKSTRUCT`.
 2. Categorizes it into one of `Modifier / System / TextLike / Navigation / Function / Other` — a pure function in [src/Input/KeyCategorizer.cs](src/Input/KeyCategorizer.cs).
-3. **Discards `VkCode`.** The local variable goes out of scope. It never reaches a field, log line, exporter, console, or file.
+3. Decides which (if any) semantic event to post: `InputKeyDown` for any keydown, `InputAltTabReleased` for Tab released while Alt held, `InputSystemKeyReleased` for Win/Esc/Print/F-keys-with-mod released.
+4. **Discards `VkCode`.** The local variable goes out of scope. The pipeline only sees the semantic kind — nothing about which specific key was pressed.
 
 The schema fields that touch keyboard activity are limited to `key_age_ms` and `idle_time_ms` — millisecond deltas, no key identity. Audited; verified end-to-end.
 
-Verbosity 3 ("raw event stream") is documented to emit categories only — never key contents.
+The modifier latches (`Alt/Ctrl/Shift/Win down`) live as private statics on the keyboard hook — they're needed for categorization (e.g., `F12 alone` is Function but `F12 with Shift` is System) and for Alt+Tab detection, and they never escape the keyboard hook either.
+
+### Pipeline-pressure events
+
+When the BufferBlock crosses 90% full (or drops back below 70% with hysteresis), the enricher prepends a synthetic event to its next output. That event flows through the pipeline like everything else and emerges as a row in every exporter with `classification=PIPELINE_PRESSURE`, `monitored_via=INTERNAL`, and a `note` like `"buffer pressure: 940/1024 (91%)"`. Its position in the seq-order tells the analyst exactly when the pressure built up. Detected on the dequeue side so the pressure event itself doesn't compete for buffer space with the events causing the pressure.
 
 ---
 
@@ -205,9 +233,9 @@ Default is `csv,jsonl`. Opt-in to more via `--format csv,jsonl,logfmt,md,log,htm
 
 | Field | Type | Notes |
 |---|---|---|
-| `timestamp_utc` | ISO 8601 (ms precision) | When the hook callback timestamped this event. |
-| `classification` | enum | `STEAL` / `SESSION_LOCK` / `USER_ALT_TAB` / `USER_CLICK` / `USER_OTHER` |
-| `monitored_via` | enum | `EVENT_SYSTEM_FOREGROUND` / `EVENT_OBJECT_SHOW` / `EVENT_OBJECT_FOCUS` |
+| `timestamp_utc` | ISO 8601 (ms precision) | The OS-recorded time of the event (from `KBDLLHOOKSTRUCT.time` / `MSLLHOOKSTRUCT.time` / `dwmsEventTime`), reconstructed to a full 64-bit timestamp. |
+| `classification` | enum | `STEAL` / `SESSION_LOCK` / `USER_ALT_TAB` / `USER_CLICK` / `USER_OTHER` / `PIPELINE_PRESSURE` |
+| `monitored_via` | enum | `EVENT_SYSTEM_FOREGROUND` / `EVENT_OBJECT_SHOW` / `EVENT_OBJECT_FOCUS` / `INTERNAL` (for `PIPELINE_PRESSURE` rows) |
 | `hwnd` | hex string | New foreground / shown / focused window handle. |
 | `window_class` | string | Win32 window class name. |
 | `window_title` | string | Window caption. |
@@ -218,7 +246,7 @@ Default is `csv,jsonl`. Opt-in to more via `--format csv,jsonl,logfmt,md,log,htm
 | `idle_time_ms` | int | `min(key_age_ms, mouse_age_ms)`. |
 | `locked_hwnd_before` | hex string | The HWND that was "what the user was really working on" before this event, or `0x0` if expired / destroyed. |
 | `locked_pid_before` | int | PID for `locked_hwnd_before`. |
-| `note` | string | Free-text annotation (`"parent already exited"`, `"locked anchor expired"`, `"monitor topology change"`, etc.). |
+| `note` | string | Free-text annotation (`"parent already exited"`, `"locked anchor expired"`, `"monitor topology change"`, `"buffer pressure: 940/1024 (91%)"`, etc.). |
 
 ---
 
@@ -258,15 +286,16 @@ SpawnSpotter/
 ├── src/
 │   ├── Cli/                         Spectre.Console.Cli commands + settings + duration converter
 │   ├── Classifier/                  pure classifier + glob matcher + truth-table inputs/outputs
-│   ├── Events/                      Classification, MonitoredVia, EventRecord schema
+│   ├── Events/                      Classification (incl. PipelinePressure), MonitoredVia, EventRecord schema
 │   ├── Export/                      6 exporters + canonical EventRecord encoders + JSON source-gen
-│   ├── Hooks/                       HookHostThread, MouseHook, KeyboardHook, WinEventHooks
-│   ├── Input/                       KeyCategorizer, InputState (lock-free shared input state)
-│   ├── Lifecycle/                   Runner: wires the whole thing together
+│   ├── Hooks/                       HookHostThread (single producer STA), MouseHook, KeyboardHook, WinEventHooks
+│   ├── Input/                       KeyCategorizer (pure: vkCode -> KeyCategory)
+│   ├── Lifecycle/                   Runner: wires the whole thing (including BroadcastBlock fan-out)
 │   ├── Native/                      Win32.cs ([LibraryImport] P/Invoke), Win32Types.cs (structs)
-│   ├── Pipeline/                    RawHookEvent, EnrichedEvent, EnrichmentPipeline, Counters
+│   ├── Pipeline/                    EventBus (hook post entry), RawHookEvent, EnrichedEvent,
+│   │                                 EnrichmentPipeline (TransformManyBlock + BroadcastBlock), Counters
 │   ├── Process/                     ProcessReader (NT API + RPM PEB walker), ProcessSnapshot
-│   └── Ui/                          ConsoleUx (verbosity logic), StatusLine (Spectre Live)
+│   └── Ui/                          ConsoleUx (verbosity logic), StatusLine
 └── tests/
     └── SpawnSpotter.Tests/          TUnit; 153 tests covering classifier truth-table, key
                                       categorizer, glob matcher, duration converter, exporter
@@ -281,8 +310,11 @@ The full design spec is in [plan.md](plan.md). It contains the problem statement
 
 Sections of the plan that have been **superseded** by later refactors:
 
-- §4 / §5.1: single STA thread for all hooks — replaced by one STA thread per hook in [src/Hooks/HookHostThread.cs](src/Hooks/HookHostThread.cs).
+- §4 / §5.1: single STA thread for all hooks — went through "one per hook" (zero cross-hook contention) and is now back to **a single producer thread** for all five hooks. Sub-µs callbacks make per-hook isolation unnecessary; a single producer gives strict seq-order at ingress, eliminating the inter-thread race on `Interlocked.Increment` and removing any need for a downstream reorder buffer.
 - §4 / §5.2: synchronous in-callback parent snapshot — moved into the parallel enrichment stage of the Dataflow pipeline in [src/Pipeline/EnrichmentPipeline.cs](src/Pipeline/EnrichmentPipeline.cs).
 - §5.6 `Thread.Sleep(10)` retry inside `ReadProcessMemory` — removed; the retry is now instant or skipped.
+- §5.3 keyboard/mouse hooks updating a global `InputState` struct — replaced by **unified pipeline**: every hook (input + window) posts via `EventBus.Post` to a single `BufferBlock`. Last-X timestamps now live as sink-local fields inside the classifier `ActionBlock`. There is no longer any global shared state between hooks and classifier.
+- Classifier exporting via a synchronous callback — replaced by a **`BroadcastBlock<EventRecord>` fan-out** with one `ActionBlock` per consumer (console UX, file exporters, HTML accumulator, shutdown watcher). Each consumer has its own back-pressure boundary.
+- Hook event timestamps from `Environment.TickCount64` at callback time — switched to **OS-recorded event time** from the hook data structs (`KBDLLHOOKSTRUCT.time` / `MSLLHOOKSTRUCT.time` / `dwmsEventTime`), reconstructed to a full 64-bit timestamp.
 
-Everything else in the plan (privacy model, AOT discipline, classifier pipeline, record schema, CLI surface, exporter formats, exit codes) holds.
+Everything else in the plan (privacy model, AOT discipline, classifier truth-table, record schema, CLI surface, exporter formats, exit codes) holds.
