@@ -335,7 +335,7 @@ internal sealed class EnrichmentPipeline
             LastAltTabReleaseTickMs: InputState.LastAltTabReleaseTickMs,
             LastMouseDownTickMs: InputState.LastMouseDownTickMs,
             LastOtherSystemKeyReleaseTickMs: InputState.LastOtherSystemKeyReleaseTickMs,
-            MonitorSuppressUntilTickMs: Volatile.Read(ref MessageLoop.MonitorSuppressUntilTickMs),
+            MonitorSuppressUntilTickMs: Volatile.Read(ref HookHostThread.MonitorSuppressUntilTickMs),
             LockedHwnd: _lockedHwnd,
             LockedPid: _lockedPid,
             LockedAtTickMs: _lockedAtTickMs,

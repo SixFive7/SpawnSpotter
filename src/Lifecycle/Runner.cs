@@ -85,40 +85,31 @@ public sealed class Runner(WatchSettings settings)
         pipeline.Start(shutdownCts.Token);
         WinEventHooks.SetPipeline(pipeline);
 
-        // ---------------- Start STA message loop with hooks installed ON the STA thread ----------------
-        // Hooks MUST be installed on the thread that pumps their messages. Installing from the
-        // main thread (which has no message pump) makes Windows wait LowLevelHooksTimeout (300 ms)
-        // per input event for our unresponsive hook = sluggish mouse + zero callbacks fire.
+        // ---------------- Start one STA host thread per hook ----------------
+        // Each hook owns its own thread + message pump, so a slow callback in any hook can never
+        // queue another hook's callbacks behind it. The Foreground host also owns the hidden
+        // top-level window for WM_DISPLAYCHANGE / WM_DPICHANGED (monitor-topology suppression).
+        var mouseHost     = new HookHostThread("Mouse",      MouseHook.Install,             MouseHook.Uninstall);
+        var keyboardHost  = new HookHostThread("Keyboard",   KeyboardHook.Install,          KeyboardHook.Uninstall);
+        var foregroundHost = new HookHostThread("Foreground", WinEventHooks.InstallForeground, WinEventHooks.UninstallForeground, withWindow: true);
+        var showHost      = new HookHostThread("Show",       WinEventHooks.InstallShow,     WinEventHooks.UninstallShow);
+        var focusHost     = new HookHostThread("Focus",      WinEventHooks.InstallFocus,    WinEventHooks.UninstallFocus);
+        var hosts = new[] { mouseHost, keyboardHost, foregroundHost, showHost, focusHost };
+
+        var startedHosts = new List<HookHostThread>(hosts.Length);
         try
         {
-            MessageLoop.Start(
-                onReady: () =>
-                {
-                    try
-                    {
-                        WinEventHooks.Install();
-                        KeyboardHook.Install();
-                        MouseHook.Install();
-                    }
-                    catch
-                    {
-                        // Rollback partial install before propagating.
-                        MouseHook.Uninstall();
-                        KeyboardHook.Uninstall();
-                        WinEventHooks.Uninstall();
-                        throw;
-                    }
-                },
-                onTeardown: () =>
-                {
-                    MouseHook.Uninstall();
-                    KeyboardHook.Uninstall();
-                    WinEventHooks.Uninstall();
-                });
+            foreach (var h in hosts)
+            {
+                h.Start();
+                startedHosts.Add(h);
+            }
         }
         catch (Exception ex)
         {
-            System.Console.Error.WriteLine($"Failed to start message loop or install hooks: {ex.Message}");
+            System.Console.Error.WriteLine($"Failed to start hook host thread: {ex.Message}");
+            // Tear down any hosts that managed to start (they'll Uninstall their hook on the way out).
+            foreach (var h in startedHosts) { try { h.Stop(); } catch { } }
             await pipeline.StopAsync().ConfigureAwait(false);
             return 1;
         }
@@ -156,10 +147,11 @@ public sealed class Runner(WatchSettings settings)
         catch (OperationCanceledException) { }
 
         // ---------------- Graceful shutdown ----------------
-        // 1) Stop the message loop. This posts WM_QUIT to the STA thread, which finishes any in-flight
-        //    callback, exits the GetMessage loop, then invokes onTeardown (uninstall hooks). Join blocks
-        //    until the STA thread fully terminates, guaranteeing no hook can fire after this returns.
-        MessageLoop.Stop();
+        // 1) Stop all hook host threads. Each posts WM_QUIT to its STA thread, which finishes any
+        //    in-flight callback, exits the message loop, then invokes onTeardown (uninstall hook).
+        //    Join blocks until each STA thread fully terminates — guaranteeing no hook can fire
+        //    after this returns.
+        foreach (var h in hosts) { try { h.Stop(); } catch { } }
         // 2) Drain the pipeline: complete input, wait for sink to finish all in-flight events.
         await pipeline.StopAsync().ConfigureAwait(false);
         // 3) Flush + dispose exporters.

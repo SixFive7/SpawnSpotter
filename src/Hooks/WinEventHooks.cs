@@ -40,46 +40,57 @@ internal static unsafe class WinEventHooks
         s_pipeline = pipeline;
     }
 
-    public static void Install()
-    {
-        // Plan section 5.2: all three subscribe with WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
-        // idProcess=0 idThread=0 (system-wide).
-        const uint flags = Win32Const.WINEVENT_OUTOFCONTEXT | Win32Const.WINEVENT_SKIPOWNPROCESS;
+    // Plan section 5.2: all three subscribe with WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
+    // idProcess=0 idThread=0 (system-wide). Split per-hook so each can live on its own STA thread
+    // (one-thread-per-hook means a callback in flight can never queue another hook's callbacks).
+    private const uint Flags = Win32Const.WINEVENT_OUTOFCONTEXT | Win32Const.WINEVENT_SKIPOWNPROCESS;
 
+    public static void InstallForeground()
+    {
         s_foregroundHook = Win32.SetWinEventHook(
             Win32Const.EVENT_SYSTEM_FOREGROUND, Win32Const.EVENT_SYSTEM_FOREGROUND,
-            IntPtr.Zero, &ForegroundCallback, 0, 0, flags);
+            IntPtr.Zero, &ForegroundCallback, 0, 0, Flags);
         if (s_foregroundHook == IntPtr.Zero)
         {
             throw new InvalidOperationException("SetWinEventHook(EVENT_SYSTEM_FOREGROUND) failed.");
         }
+    }
 
+    public static void UninstallForeground()
+    {
+        if (s_foregroundHook != IntPtr.Zero) { Win32.UnhookWinEvent(s_foregroundHook); s_foregroundHook = IntPtr.Zero; }
+    }
+
+    public static void InstallShow()
+    {
         s_showHook = Win32.SetWinEventHook(
             Win32Const.EVENT_OBJECT_SHOW, Win32Const.EVENT_OBJECT_SHOW,
-            IntPtr.Zero, &ShowCallback, 0, 0, flags);
+            IntPtr.Zero, &ShowCallback, 0, 0, Flags);
         if (s_showHook == IntPtr.Zero)
         {
-            Win32.UnhookWinEvent(s_foregroundHook);
-            s_foregroundHook = IntPtr.Zero;
             throw new InvalidOperationException("SetWinEventHook(EVENT_OBJECT_SHOW) failed.");
         }
+    }
 
+    public static void UninstallShow()
+    {
+        if (s_showHook != IntPtr.Zero) { Win32.UnhookWinEvent(s_showHook); s_showHook = IntPtr.Zero; }
+    }
+
+    public static void InstallFocus()
+    {
         s_focusHook = Win32.SetWinEventHook(
             Win32Const.EVENT_OBJECT_FOCUS, Win32Const.EVENT_OBJECT_FOCUS,
-            IntPtr.Zero, &FocusCallback, 0, 0, flags);
+            IntPtr.Zero, &FocusCallback, 0, 0, Flags);
         if (s_focusHook == IntPtr.Zero)
         {
-            Win32.UnhookWinEvent(s_showHook); s_showHook = IntPtr.Zero;
-            Win32.UnhookWinEvent(s_foregroundHook); s_foregroundHook = IntPtr.Zero;
             throw new InvalidOperationException("SetWinEventHook(EVENT_OBJECT_FOCUS) failed.");
         }
     }
 
-    public static void Uninstall()
+    public static void UninstallFocus()
     {
         if (s_focusHook != IntPtr.Zero) { Win32.UnhookWinEvent(s_focusHook); s_focusHook = IntPtr.Zero; }
-        if (s_showHook != IntPtr.Zero) { Win32.UnhookWinEvent(s_showHook); s_showHook = IntPtr.Zero; }
-        if (s_foregroundHook != IntPtr.Zero) { Win32.UnhookWinEvent(s_foregroundHook); s_foregroundHook = IntPtr.Zero; }
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
