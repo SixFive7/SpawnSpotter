@@ -1,3 +1,4 @@
+using System.Threading.Tasks.Dataflow;
 using SpawnSpotter.Cli;
 using SpawnSpotter.Classifier;
 using SpawnSpotter.Ui;
@@ -36,8 +37,9 @@ public sealed class Runner(WatchSettings settings)
         await using var exporters = new ExporterRegistry(logDir, formats);
 
         // Capture every emitted record in memory for the HTML report (cheap; expected volume small).
+        // No lock needed — the accumulator ActionBlock below runs single-threaded (DOP=1) and is
+        // joined before the HTML write reads from this list at shutdown.
         var inMemoryAll = new List<EventRecord>(1024);
-        var inMemoryGate = new object();
 
         // ---------------- Shutdown CTS combining external + duration + max-steals ----------------
         using var shutdownCts = CancellationTokenSource.CreateLinkedTokenSource(externalCancellation);
@@ -49,24 +51,6 @@ public sealed class Runner(WatchSettings settings)
         // ---------------- Build + start enrichment pipeline ----------------
         var enricherWorkers = _settings.EnricherWorkers ?? Math.Max(2, Environment.ProcessorCount / 4);
 
-        Action<EventRecord> onRecord = ev =>
-        {
-            // Verbosity filter at the source (plan 5.8): events below threshold are NOT recorded.
-            if (!ux.ShouldShowEvent(ev.Classification))
-            {
-                return;
-            }
-            lock (inMemoryGate) { inMemoryAll.Add(ev); }
-            _ = exporters.WriteAllAsync(ev).AsTask();
-            ux.HandleEvent(ev);
-
-            // --max-steals early termination
-            if (_settings.MaxSteals is { } limit && ev.Classification == Classification.Steal
-                && counters.Steal >= limit)
-            {
-                shutdownCts.Cancel();
-            }
-        };
         Action<EventRecord> onDiagnostic = ev =>
         {
             if (!ux.ShouldShowDiagnostic()) { return; }
@@ -78,12 +62,55 @@ public sealed class Runner(WatchSettings settings)
             enricherWorkers: enricherWorkers,
             dedupeWindowMs: _settings.DedupeWindowMs,
             captureEnv: _settings.CaptureEnv,
-            onRecord: onRecord,
             onDiagnostic: onDiagnostic,
             stats: counters);
 
         pipeline.Start(shutdownCts.Token);
         EventBus.SetPipeline(pipeline);
+
+        // ---------------- BroadcastBlock fan-out to 8 consumers ----------------
+        // Each consumer is its own ActionBlock linked to pipeline.RecordSource. Verbosity
+        // filtering is per-consumer via the LinkTo predicate. PropagateCompletion ensures
+        // every consumer drains when the pipeline shuts down.
+        var consumers = new List<ActionBlock<EventRecord>>(8);
+        var linkOpts = new DataflowLinkOptions { PropagateCompletion = true };
+        var consumerBlockOpts = new ExecutionDataflowBlockOptions { MaxDegreeOfParallelism = 1 };
+        bool VerbosityFilter(EventRecord ev) => ux.ShouldShowEvent(ev.Classification);
+
+        // 1. Console UX (per-event lines + tracks last-steal for status line)
+        var consoleConsumer = new ActionBlock<EventRecord>(ev => ux.HandleEvent(ev), consumerBlockOpts);
+        pipeline.RecordSource.LinkTo(consoleConsumer, linkOpts, VerbosityFilter);
+        consumers.Add(consoleConsumer);
+
+        // 2-N. One ActionBlock per active file exporter (--format determines which are enabled).
+        // Each format has its own back-pressure boundary; a slow file exporter cannot delay the
+        // console, accumulator, or other exporters.
+        foreach (var ex in exporters.Exporters)
+        {
+            var local = ex; // capture
+            var block = new ActionBlock<EventRecord>(
+                ev => local.WriteAsync(ev).AsTask(),
+                consumerBlockOpts);
+            pipeline.RecordSource.LinkTo(block, linkOpts, VerbosityFilter);
+            consumers.Add(block);
+        }
+
+        // 7. In-memory accumulator (for HTML report on shutdown; DOP=1 so no lock needed).
+        var accumulatorBlock = new ActionBlock<EventRecord>(ev => inMemoryAll.Add(ev), consumerBlockOpts);
+        pipeline.RecordSource.LinkTo(accumulatorBlock, linkOpts, VerbosityFilter);
+        consumers.Add(accumulatorBlock);
+
+        // 8. Shutdown watcher (--max-steals early termination).
+        var shutdownWatcher = new ActionBlock<EventRecord>(ev =>
+        {
+            if (_settings.MaxSteals is { } limit && ev.Classification == Classification.Steal
+                && counters.Steal >= limit)
+            {
+                shutdownCts.Cancel();
+            }
+        }, consumerBlockOpts);
+        pipeline.RecordSource.LinkTo(shutdownWatcher, linkOpts);  // no verbosity filter — needs all events
+        consumers.Add(shutdownWatcher);
 
         // ---------------- Start single STA producer thread for all hooks ----------------
         // All 5 hooks live on one thread. Per-hook isolation isn't needed once callbacks are
@@ -173,9 +200,16 @@ public sealed class Runner(WatchSettings settings)
         //    Join blocks until the STA thread fully terminates — guaranteeing no hook can fire
         //    after this returns.
         try { host.Stop(); } catch { }
-        // 2) Drain the pipeline: complete input, wait for sink to finish all in-flight events.
+        // 2) Drain the pipeline: complete input, wait for the sink to finish all in-flight
+        //    events; pipeline then completes the BroadcastBlock which propagates completion
+        //    to every linked consumer ActionBlock.
         await pipeline.StopAsync().ConfigureAwait(false);
-        // 3) Flush + dispose exporters.
+        // 3) Wait for all fan-out consumers to drain. PropagateCompletion = true means each
+        //    consumer's Completion task finishes once it has processed every record it received
+        //    before the broadcast was completed.
+        try { await Task.WhenAll(consumers.Select(c => c.Completion)).ConfigureAwait(false); }
+        catch { /* swallow — individual consumer faults already logged inside their handlers */ }
+        // 4) Flush + dispose exporters.
         await exporters.FlushAllAsync().ConfigureAwait(false);
         await exporters.DisposeAsync().ConfigureAwait(false);
 
@@ -191,7 +225,7 @@ public sealed class Runner(WatchSettings settings)
             var jsonlPath = LogDirectory.DailyPath(logDir, "jsonl");
             var htmlPath = LogDirectory.DailyPath(logDir, "html");
             List<EventRecord> snapshot;
-            lock (inMemoryGate) { snapshot = new List<EventRecord>(inMemoryAll); }
+            snapshot = new List<EventRecord>(inMemoryAll);
             await HtmlReportWriter.WriteAsync(htmlPath, snapshot, File.Exists(jsonlPath) ? jsonlPath : null);
         }
         catch (Exception ex)

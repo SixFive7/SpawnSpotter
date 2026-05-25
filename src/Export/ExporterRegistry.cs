@@ -45,6 +45,12 @@ internal sealed class ExporterRegistry : IAsyncDisposable
 
     public string BaseDir => _baseDir;
 
+    /// <summary>
+    /// The active exporter instances. Runner wires one Dataflow ActionBlock per exporter so
+    /// each format has its own back-pressure boundary.
+    /// </summary>
+    public IReadOnlyList<IEventExporter> Exporters => _exporters;
+
     public async ValueTask WriteAllAsync(EventRecord record)
     {
         foreach (var ex in _exporters)

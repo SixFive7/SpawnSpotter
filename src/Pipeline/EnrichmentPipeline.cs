@@ -38,12 +38,21 @@ internal sealed class EnrichmentPipeline
     private readonly bool _captureEnv;
     private readonly int _enricherWorkers;
     private readonly Counters _stats;
-    private readonly Action<EventRecord>? _onRecord;
     private readonly Action<EventRecord>? _onDiagnostic;
 
     private BufferBlock<RawHookEvent>? _input;
     private TransformManyBlock<RawHookEvent, EnrichedEvent>? _enricher;
     private ActionBlock<EnrichedEvent>? _sink;
+    private BroadcastBlock<EventRecord>? _broadcast;
+
+    /// <summary>
+    /// Source of <see cref="EventRecord"/>s for consumers to link to (Phase 4: fan-out via
+    /// <see cref="BroadcastBlock{T}"/>). Each consumer (console UX, each file exporter, the
+    /// HTML accumulator, the shutdown-watcher) is its own <see cref="ActionBlock{TInput}"/>
+    /// linked here. Available after <see cref="Start"/> has been called.
+    /// </summary>
+    public ISourceBlock<EventRecord> RecordSource =>
+        _broadcast ?? throw new InvalidOperationException("EnrichmentPipeline.Start has not been called.");
 
     // Buffer-pressure state. Written by enricher workers via Interlocked.CompareExchange so that
     // only one worker emits the threshold-crossing event even with DOP > 1.
@@ -74,7 +83,6 @@ internal sealed class EnrichmentPipeline
         int enricherWorkers,
         int dedupeWindowMs,
         bool captureEnv,
-        Action<EventRecord>? onRecord,
         Action<EventRecord>? onDiagnostic,
         Counters stats)
     {
@@ -82,7 +90,6 @@ internal sealed class EnrichmentPipeline
         _enricherWorkers = enricherWorkers;
         _dedupeWindowMs = dedupeWindowMs;
         _captureEnv = captureEnv;
-        _onRecord = onRecord;
         _onDiagnostic = onDiagnostic;
         _stats = stats;
 
@@ -133,9 +140,17 @@ internal sealed class EnrichmentPipeline
             ev => ProcessOne(ev),
             sinkOpts);
 
+        // EventRecord is an immutable record; the broadcast cloneFunction is identity.
+        _broadcast = new BroadcastBlock<EventRecord>(
+            r => r,
+            new DataflowBlockOptions { CancellationToken = ct });
+
         var link = new DataflowLinkOptions { PropagateCompletion = true };
         _input.LinkTo(_enricher, link);
         _enricher.LinkTo(_sink, link);
+        // _sink (ActionBlock) is not directly linked to _broadcast; _sink posts to _broadcast
+        // explicitly inside HandleWindowEvent / HandlePressureEvent. The broadcast is completed
+        // explicitly in StopAsync after sink.Completion.
     }
 
     /// <summary>
@@ -155,12 +170,14 @@ internal sealed class EnrichmentPipeline
 
     /// <summary>
     /// Completes the input block and waits for all in-flight events to drain through enrichment
-    /// + sink. Safe to call multiple times.
+    /// + sink. After sink completes, the broadcast block is also completed so its linked
+    /// consumers can drain and complete. Safe to call multiple times.
     /// </summary>
     public async Task StopAsync()
     {
         var sink = _sink;
         var input = _input;
+        var broadcast = _broadcast;
         if (input is null || sink is null)
         {
             return;
@@ -169,6 +186,9 @@ internal sealed class EnrichmentPipeline
         try { await sink.Completion.ConfigureAwait(false); }
         catch (OperationCanceledException) { }
         catch { /* swallow — best-effort drain */ }
+        // After the sink has finished, no new records will be posted to the broadcast.
+        // Complete it so linked consumer ActionBlocks can drain their own queues and finish.
+        broadcast?.Complete();
     }
 
     // -------------------------------------------------------------------------
@@ -450,7 +470,7 @@ internal sealed class EnrichmentPipeline
             LockedPidBefore: 0,
             Note: ev.Note ?? string.Empty);
         _stats.IncrementPipelinePressure();
-        _onRecord?.Invoke(record);
+        _broadcast?.Post(record);
     }
 
     private void HandleInputEvent(EnrichedEvent ev)
@@ -562,7 +582,7 @@ internal sealed class EnrichmentPipeline
             return;
         }
 
-        _onRecord?.Invoke(record);
+        _broadcast?.Post(record);
     }
 
     private static long ComputeAge(long now, long stamp)
