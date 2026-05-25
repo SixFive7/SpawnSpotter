@@ -80,7 +80,7 @@ internal static unsafe class WinEventHooks
         int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
     {
         if (idObject != Win32Const.OBJID_WINDOW || idChild != Win32Const.CHILDID_SELF) { return; }
-        EventBus.Post(HookEventKind.Foreground, hwnd, eventType);
+        EventBus.Post(HookEventKind.Foreground, hwnd, eventType, osTime32: dwmsEventTime);
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
@@ -92,7 +92,7 @@ internal static unsafe class WinEventHooks
         // with tooltip / menu / transient-popup noise. All filter calls are cheap in-process Win32.
         if (idObject != Win32Const.OBJID_WINDOW || idChild != Win32Const.CHILDID_SELF) { return; }
         if (!FilterTopLevelVisible(hwnd)) { return; }
-        EventBus.Post(HookEventKind.ObjectShow, hwnd, eventType);
+        EventBus.Post(HookEventKind.ObjectShow, hwnd, eventType, osTime32: dwmsEventTime);
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
@@ -101,7 +101,7 @@ internal static unsafe class WinEventHooks
     {
         if (idObject != Win32Const.OBJID_WINDOW || idChild != Win32Const.CHILDID_SELF) { return; }
         if (!FilterTopLevelVisible(hwnd)) { return; }
-        EventBus.Post(HookEventKind.ObjectFocus, hwnd, eventType);
+        EventBus.Post(HookEventKind.ObjectFocus, hwnd, eventType, osTime32: dwmsEventTime);
     }
 
     /// <summary>

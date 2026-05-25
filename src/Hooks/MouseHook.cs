@@ -38,7 +38,7 @@ internal static unsafe class MouseHook
     [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
     private static IntPtr MouseCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
-        if (nCode != Win32Const.HC_ACTION)
+        if (nCode != Win32Const.HC_ACTION || lParam == IntPtr.Zero)
         {
             return Win32.CallNextHookEx(IntPtr.Zero, nCode, wParam, lParam);
         }
@@ -52,7 +52,8 @@ internal static unsafe class MouseHook
             case Win32Const.WM_RBUTTONDOWN:
             case Win32Const.WM_MBUTTONDOWN:
             case Win32Const.WM_XBUTTONDOWN:
-                EventBus.Post(HookEventKind.InputMouseButtonDown);
+                var osTime = ((MSLLHOOKSTRUCT*)lParam)->Time;
+                EventBus.Post(HookEventKind.InputMouseButtonDown, osTime32: osTime);
                 break;
             // WM_MOUSEMOVE / WM_MOUSEWHEEL / WM_*BUTTONUP : ignored entirely.
         }

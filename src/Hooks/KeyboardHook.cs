@@ -61,6 +61,7 @@ internal static unsafe class KeyboardHook
         var data = *(KBDLLHOOKSTRUCT*)lParam;
         var vk = data.VkCode;
         var isUp = (data.Flags & Win32Const.LLKHF_UP) != 0;
+        var osTime = data.Time;
 
         // Update modifier state BEFORE categorizing — so a Tab fired with Alt held registers
         // as System (hotkey gesture), not Navigation.
@@ -73,7 +74,7 @@ internal static unsafe class KeyboardHook
         {
             // Any keydown means the user is touching the keyboard.
             // This is what keeps the classifier's LastKeyTickMs accurate.
-            EventBus.Post(HookEventKind.InputKeyDown);
+            EventBus.Post(HookEventKind.InputKeyDown, osTime32: osTime);
         }
         else
         {
@@ -82,12 +83,12 @@ internal static unsafe class KeyboardHook
             if (vk == Vk.TAB && s_altDown != 0)
             {
                 // Alt+Tab — Tab released while Alt still held.
-                EventBus.Post(HookEventKind.InputAltTabReleased);
+                EventBus.Post(HookEventKind.InputAltTabReleased, osTime32: osTime);
             }
             else if (category == KeyCategory.System)
             {
                 // Win / Apps / Esc / Print / Snapshot / F1-12 with modifier.
-                EventBus.Post(HookEventKind.InputSystemKeyReleased);
+                EventBus.Post(HookEventKind.InputSystemKeyReleased, osTime32: osTime);
             }
         }
 
