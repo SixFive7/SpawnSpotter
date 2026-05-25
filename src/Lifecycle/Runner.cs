@@ -85,33 +85,41 @@ public sealed class Runner(WatchSettings settings)
         pipeline.Start(shutdownCts.Token);
         WinEventHooks.SetPipeline(pipeline);
 
-        // ---------------- Start STA message loop ----------------
+        // ---------------- Start STA message loop with hooks installed ON the STA thread ----------------
+        // Hooks MUST be installed on the thread that pumps their messages. Installing from the
+        // main thread (which has no message pump) makes Windows wait LowLevelHooksTimeout (300 ms)
+        // per input event for our unresponsive hook = sluggish mouse + zero callbacks fire.
         try
         {
-            MessageLoop.Start();
+            MessageLoop.Start(
+                onReady: () =>
+                {
+                    try
+                    {
+                        WinEventHooks.Install();
+                        KeyboardHook.Install();
+                        MouseHook.Install();
+                    }
+                    catch
+                    {
+                        // Rollback partial install before propagating.
+                        MouseHook.Uninstall();
+                        KeyboardHook.Uninstall();
+                        WinEventHooks.Uninstall();
+                        throw;
+                    }
+                },
+                onTeardown: () =>
+                {
+                    MouseHook.Uninstall();
+                    KeyboardHook.Uninstall();
+                    WinEventHooks.Uninstall();
+                });
         }
         catch (Exception ex)
         {
-            System.Console.Error.WriteLine($"Failed to start message loop: {ex.Message}");
+            System.Console.Error.WriteLine($"Failed to start message loop or install hooks: {ex.Message}");
             await pipeline.StopAsync().ConfigureAwait(false);
-            return 1;
-        }
-
-        // ---------------- Install hooks ----------------
-        try
-        {
-            WinEventHooks.Install();
-            KeyboardHook.Install();
-            MouseHook.Install();
-        }
-        catch (Exception ex)
-        {
-            System.Console.Error.WriteLine($"Failed to install hooks: {ex.Message}");
-            MouseHook.Uninstall();
-            KeyboardHook.Uninstall();
-            WinEventHooks.Uninstall();
-            await pipeline.StopAsync().ConfigureAwait(false);
-            MessageLoop.Stop();
             return 1;
         }
 
@@ -148,15 +156,15 @@ public sealed class Runner(WatchSettings settings)
         catch (OperationCanceledException) { }
 
         // ---------------- Graceful shutdown ----------------
-        // Uninstall hooks first so no new events flow into the pipeline.
-        MouseHook.Uninstall();
-        KeyboardHook.Uninstall();
-        WinEventHooks.Uninstall();
-        // Then drain the pipeline: complete input, wait for sink to finish all in-flight events.
+        // 1) Stop the message loop. This posts WM_QUIT to the STA thread, which finishes any in-flight
+        //    callback, exits the GetMessage loop, then invokes onTeardown (uninstall hooks). Join blocks
+        //    until the STA thread fully terminates, guaranteeing no hook can fire after this returns.
+        MessageLoop.Stop();
+        // 2) Drain the pipeline: complete input, wait for sink to finish all in-flight events.
         await pipeline.StopAsync().ConfigureAwait(false);
+        // 3) Flush + dispose exporters.
         await exporters.FlushAllAsync().ConfigureAwait(false);
         await exporters.DisposeAsync().ConfigureAwait(false);
-        MessageLoop.Stop();
 
         if (statusLine is not null)
         {

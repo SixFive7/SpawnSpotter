@@ -25,6 +25,8 @@ internal static unsafe class MessageLoop
     private static ushort s_classAtom;
     private static readonly ManualResetEventSlim s_ready = new(false);
     private static Exception? s_startupError;
+    private static Action? s_onReady;
+    private static Action? s_onTeardown;
 
     /// <summary>Set by <c>WM_DISPLAYCHANGE</c>/<c>WM_DPICHANGED</c>. Read by the classifier.</summary>
     public static long MonitorSuppressUntilTickMs;
@@ -37,14 +39,25 @@ internal static unsafe class MessageLoop
 
     /// <summary>
     /// Starts the STA thread, registers the window class, creates the hidden top-level window,
-    /// runs the message loop. Returns once the window is ready (or throws on startup failure).
+    /// invokes <paramref name="onReady"/> on the STA thread (typically to install hooks — hooks
+    /// MUST be installed on the thread that pumps their messages), then runs the message loop.
+    /// On exit, <paramref name="onTeardown"/> is invoked on the STA thread before the window is
+    /// destroyed (typically to uninstall hooks).
+    ///
+    /// <para>
+    /// Returns once <paramref name="onReady"/> has completed (or throws if it failed). After
+    /// this returns successfully, the STA thread is dispatching messages — hook callbacks fire.
+    /// </para>
     /// </summary>
-    public static void Start()
+    public static void Start(Action? onReady = null, Action? onTeardown = null)
     {
         if (s_thread is not null)
         {
             throw new InvalidOperationException("MessageLoop already started.");
         }
+
+        s_onReady = onReady;
+        s_onTeardown = onTeardown;
 
         s_thread = new Thread(ThreadEntry)
         {
@@ -131,6 +144,13 @@ internal static unsafe class MessageLoop
                     $"CreateWindowExW failed: Win32 error 0x{Marshal.GetLastPInvokeError():X}");
             }
 
+            // Install hooks ON THE STA THREAD before the message loop starts.
+            // Hooks MUST be installed on the thread that pumps their messages — otherwise the
+            // callbacks never fire and Windows applies LowLevelHooksTimeout (default 300 ms)
+            // to every input event waiting for our unresponsive hook = sluggish mouse.
+            s_onReady?.Invoke();
+
+            // Signal the caller (Start) that we're fully ready — both window and hooks live.
             s_ready.Set();
 
             // Pump messages. WM_QUIT (posted by Stop or PostQuitMessage) returns false.
@@ -147,7 +167,9 @@ internal static unsafe class MessageLoop
         }
         finally
         {
-            // Best-effort teardown.
+            // Uninstall hooks (best-effort) ON THE STA THREAD — same thread that installed them.
+            try { s_onTeardown?.Invoke(); } catch { }
+
             if (s_hwnd != IntPtr.Zero)
             {
                 Win32.DestroyWindow(s_hwnd);
