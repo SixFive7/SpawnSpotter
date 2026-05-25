@@ -34,6 +34,11 @@ internal sealed class ConsoleUx
     /// </summary>
     public bool ShouldShowEvent(Classification cls)
     {
+        // PIPELINE_PRESSURE is a system-health signal — always shown regardless of verbosity.
+        if (cls == Classification.PipelinePressure)
+        {
+            return true;
+        }
         // Verbosity 0: STEAL + SESSION_LOCK.
         if (_settings.Verbosity <= 0)
         {
@@ -112,7 +117,10 @@ internal sealed class ConsoleUx
     public string BuildExitSummary(string logDir)
     {
         var elapsed = DateTime.UtcNow - _startedAtUtc;
+        var pressure = _counters.PipelinePressure > 0 ? $" PIPELINE_PRESSURE={_counters.PipelinePressure}" : "";
+        var droppedCount = EventBus.DroppedAtIngest;
+        var dropped = droppedCount > 0 ? $" dropped_at_ingest={droppedCount}" : "";
         return string.Create(CultureInfo.InvariantCulture,
-            $"Ran {elapsed:hh\\:mm\\:ss}. Logged STEAL={_counters.Steal} SESSION_LOCK={_counters.SessionLock} USER_ALT_TAB={_counters.UserAltTab} USER_CLICK={_counters.UserClick} USER_OTHER={_counters.UserOther}. Files: {logDir}");
+            $"Ran {elapsed:hh\\:mm\\:ss}. Logged STEAL={_counters.Steal} SESSION_LOCK={_counters.SessionLock} USER_ALT_TAB={_counters.UserAltTab} USER_CLICK={_counters.UserClick} USER_OTHER={_counters.UserOther}{pressure}{dropped}. Files: {logDir}");
     }
 }

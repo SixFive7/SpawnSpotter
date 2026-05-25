@@ -42,8 +42,15 @@ internal sealed class EnrichmentPipeline
     private readonly Action<EventRecord>? _onDiagnostic;
 
     private BufferBlock<RawHookEvent>? _input;
-    private TransformBlock<RawHookEvent, EnrichedEvent>? _enricher;
+    private TransformManyBlock<RawHookEvent, EnrichedEvent>? _enricher;
     private ActionBlock<EnrichedEvent>? _sink;
+
+    // Buffer-pressure state. Written by enricher workers via Interlocked.CompareExchange so that
+    // only one worker emits the threshold-crossing event even with DOP > 1.
+    private const int BufferCapacity = 1024;
+    private const int PressureEnterThreshold = (int)(BufferCapacity * 0.9);   // 921
+    private const int PressureClearThreshold = (int)(BufferCapacity * 0.7);   // 716
+    private int _inPressure;  // 0 = not, 1 = yes
 
     // ---- Sink-only mutable state (single-threaded thanks to MaxDegreeOfParallelism = 1) ----
 
@@ -119,7 +126,7 @@ internal sealed class EnrichmentPipeline
         };
 
         _input = new BufferBlock<RawHookEvent>(bufferOpts);
-        _enricher = new TransformBlock<RawHookEvent, EnrichedEvent>(
+        _enricher = new TransformManyBlock<RawHookEvent, EnrichedEvent>(
             raw => EnrichOne(raw),
             transformOpts);
         _sink = new ActionBlock<EnrichedEvent>(
@@ -169,11 +176,73 @@ internal sealed class EnrichmentPipeline
     // -------------------------------------------------------------------------
 
     /// <summary>
-    /// Runs on an enricher worker (off the hook thread). Branches on event kind:
-    /// window events get the full enrichment treatment; input + pressure events pass through
-    /// with default values for the window-only fields.
+    /// Runs on an enricher worker (off the hook thread). Returns one or more outputs:
+    /// <list type="bullet">
+    /// <item>The enriched form of <paramref name="raw"/> (always).</item>
+    /// <item>A synthetic PipelinePressureEnter/Clear event PREPENDED when the buffer count
+    /// crosses 90% (enter) or back below 70% (clear). The pressure event is naturally
+    /// positioned right before the event that triggered the threshold notice.</item>
+    /// </list>
+    ///
+    /// <para>Window events get full enrichment; input + pressure events pass through with
+    /// default values for the window-only fields.</para>
     /// </summary>
-    private EnrichedEvent EnrichOne(RawHookEvent raw)
+    private IEnumerable<EnrichedEvent> EnrichOne(RawHookEvent raw)
+    {
+        // Pressure check: read the buffer's current count right after we picked an event off it.
+        // Use Interlocked.CompareExchange so only one worker emits the threshold-crossing event.
+        EnrichedEvent? pressureEvent = null;
+        var count = _input?.Count ?? 0;
+
+        if (Volatile.Read(ref _inPressure) == 0)
+        {
+            if (count >= PressureEnterThreshold
+                && Interlocked.CompareExchange(ref _inPressure, 1, 0) == 0)
+            {
+                pressureEvent = MakePressureEvent(
+                    HookEventKind.PipelinePressureEnter, raw.TickMs, raw.WallUtc,
+                    $"buffer pressure: {count}/{BufferCapacity} ({100 * count / BufferCapacity}%)");
+            }
+        }
+        else
+        {
+            if (count <= PressureClearThreshold
+                && Interlocked.CompareExchange(ref _inPressure, 0, 1) == 1)
+            {
+                pressureEvent = MakePressureEvent(
+                    HookEventKind.PipelinePressureClear, raw.TickMs, raw.WallUtc,
+                    $"buffer cleared: {count}/{BufferCapacity} ({100 * count / BufferCapacity}%)");
+            }
+        }
+
+        var enriched = EnrichInner(raw);
+
+        if (pressureEvent is { } pe)
+        {
+            return [pe, enriched];
+        }
+        return [enriched];
+    }
+
+    private static EnrichedEvent MakePressureEvent(HookEventKind kind, long tickMs, DateTime utc, string note)
+    {
+        return new EnrichedEvent(
+            Seq: 0,
+            TickMs: tickMs,
+            WallUtc: utc,
+            Kind: kind,
+            Hwnd: IntPtr.Zero,
+            EventType: 0,
+            FocusedPid: 0,
+            WindowClass: string.Empty,
+            WindowTitle: string.Empty,
+            FocusedSnapshot: null,
+            ParentSnapshot: null,
+            AncestorChain: [],
+            Note: note);
+    }
+
+    private EnrichedEvent EnrichInner(RawHookEvent raw)
     {
         if (!raw.Kind.IsWindowEvent())
         {
@@ -351,15 +420,37 @@ internal sealed class EnrichmentPipeline
             return;
         }
 
-        // Pressure events: emit a special record (Phase 3 will implement; for now passthrough as no-op).
+        // Pressure events: emit a special PIPELINE_PRESSURE record so the analyst can see
+        // exactly where in the event stream the buffer got stressed.
         if (ev.Kind.IsPressureEvent())
         {
-            // Phase 3 wires PIPELINE_PRESSURE classification + emit. Until then, just ignore.
+            HandlePressureEvent(ev);
             return;
         }
 
         // Window event: dedupe + classify + emit.
         HandleWindowEvent(ev);
+    }
+
+    private void HandlePressureEvent(EnrichedEvent ev)
+    {
+        var record = new EventRecord(
+            TimestampUtc: ev.WallUtc,
+            Classification: Classification.PipelinePressure,
+            MonitoredVia: MonitoredVia.Internal,
+            Hwnd: IntPtr.Zero,
+            WindowClass: string.Empty,
+            WindowTitle: string.Empty,
+            FocusedPid: 0,
+            ParentChain: [],
+            KeyAgeMs: -1,
+            MouseAgeMs: -1,
+            IdleTimeMs: -1,
+            LockedHwndBefore: IntPtr.Zero,
+            LockedPidBefore: 0,
+            Note: ev.Note ?? string.Empty);
+        _stats.IncrementPipelinePressure();
+        _onRecord?.Invoke(record);
     }
 
     private void HandleInputEvent(EnrichedEvent ev)

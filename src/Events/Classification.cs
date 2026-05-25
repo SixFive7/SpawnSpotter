@@ -1,7 +1,10 @@
 namespace SpawnSpotter.Events;
 
 /// <summary>
-/// Final classification of a focus-change event (plan section 5.5 / 5.7).
+/// Final classification of an event row in the output. Most rows are focus-change classifications
+/// (plan section 5.5 / 5.7). <see cref="PipelinePressure"/> is a meta-row emitted by the enrichment
+/// pipeline when the input buffer crosses pressure thresholds — it tells the analyst "here's where
+/// the pipeline got stressed" in the natural ordering of events.
 /// </summary>
 public enum Classification
 {
@@ -10,6 +13,7 @@ public enum Classification
     UserAltTab,
     UserClick,
     UserOther,
+    PipelinePressure,
 }
 
 internal static class ClassificationExtensions
@@ -21,6 +25,7 @@ internal static class ClassificationExtensions
         Classification.UserAltTab => "USER_ALT_TAB",
         Classification.UserClick => "USER_CLICK",
         Classification.UserOther => "USER_OTHER",
+        Classification.PipelinePressure => "PIPELINE_PRESSURE",
         _ => c.ToString(),
     };
 }
