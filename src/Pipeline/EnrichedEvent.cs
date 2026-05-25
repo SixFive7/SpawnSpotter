@@ -5,11 +5,14 @@ namespace SpawnSpotter.Pipeline;
 
 /// <summary>
 /// Output of the enrichment <see cref="System.Threading.Tasks.Dataflow.TransformBlock{TInput,TOutput}"/>:
-/// everything the classifier and exporters need. Built from a <see cref="RawHookEvent"/> by
-/// <see cref="EnrichmentPipeline"/> using Win32 calls + <see cref="ProcessReader.TrySnapshot"/>
-/// for focused, parent, and walked ancestors.
+/// everything the classifier and exporters need.
 ///
-/// Carries forward the contents of the (now-deleted) <c>RawEvent</c>.
+/// <para>For window events (Foreground / ObjectShow / ObjectFocus): every field populated.</para>
+/// <para>For input events (InputKeyDown / InputAltTabReleased / InputSystemKeyReleased /
+/// InputMouseButtonDown): window-specific fields are default (Hwnd=0, empty strings, empty chain).
+/// The classifier branches on <see cref="Kind"/> and only consults the window fields when relevant.</para>
+/// <para>For pressure events (PipelinePressureEnter / PipelinePressureClear): only <see cref="Note"/>
+/// and the timestamp fields are meaningful.</para>
 /// </summary>
 internal readonly record struct EnrichedEvent(
     long Seq,
@@ -23,4 +26,5 @@ internal readonly record struct EnrichedEvent(
     string WindowTitle,
     ProcessSnapshot? FocusedSnapshot,
     ProcessSnapshot? ParentSnapshot,
-    IReadOnlyList<ChainNode> AncestorChain);
+    IReadOnlyList<ChainNode> AncestorChain,
+    string? Note);

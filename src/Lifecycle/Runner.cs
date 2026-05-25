@@ -83,7 +83,7 @@ public sealed class Runner(WatchSettings settings)
             stats: counters);
 
         pipeline.Start(shutdownCts.Token);
-        WinEventHooks.SetPipeline(pipeline);
+        EventBus.SetPipeline(pipeline);
 
         // ---------------- Start single STA producer thread for all hooks ----------------
         // All 5 hooks live on one thread. Per-hook isolation isn't needed once callbacks are

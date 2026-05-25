@@ -12,12 +12,9 @@ namespace SpawnSpotter.Hooks;
 /// section 3, no managed delegate ever exists; no GCHandle.Alloc pinning is required.
 ///
 /// <para>
-/// HOT-PATH BUDGET: every callback must complete in &lt; 5 microseconds. The original design
-/// (synchronous PID lookup + class/title reads + <c>ProcessReader.TrySnapshot</c> + parent
-/// snapshot) was 10+ syscalls per callback and was starving the message-pump thread that
-/// also hosts the low-level keyboard and mouse hooks — that is the bug this refactor fixes.
-/// The callbacks now only build a 40-byte readonly struct and post to a Dataflow buffer;
-/// all enrichment work runs on the worker thread pool via <see cref="EnrichmentPipeline"/>.
+/// HOT-PATH BUDGET: every callback must complete in &lt; 5 microseconds. They build a small
+/// readonly struct and post via <see cref="EventBus"/>; all enrichment work runs on a separate
+/// thread pool in <see cref="EnrichmentPipeline"/>.
 /// </para>
 /// </summary>
 internal static unsafe class WinEventHooks
@@ -26,23 +23,8 @@ internal static unsafe class WinEventHooks
     private static IntPtr s_showHook;
     private static IntPtr s_focusHook;
 
-    private static EnrichmentPipeline? s_pipeline;
-    private static long s_nextSeq;
-    private static long s_droppedAtIngest;
-
-    public static long DroppedAtIngest => Volatile.Read(ref s_droppedAtIngest);
-
-    /// <summary>
-    /// Inject the pipeline that hook callbacks will post into. Call before <see cref="Install"/>.
-    /// </summary>
-    public static void SetPipeline(EnrichmentPipeline pipeline)
-    {
-        s_pipeline = pipeline;
-    }
-
     // Plan section 5.2: all three subscribe with WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
-    // idProcess=0 idThread=0 (system-wide). Split per-hook so each can live on its own STA thread
-    // (one-thread-per-hook means a callback in flight can never queue another hook's callbacks).
+    // idProcess=0 idThread=0 (system-wide).
     private const uint Flags = Win32Const.WINEVENT_OUTOFCONTEXT | Win32Const.WINEVENT_SKIPOWNPROCESS;
 
     public static void InstallForeground()
@@ -98,7 +80,7 @@ internal static unsafe class WinEventHooks
         int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
     {
         if (idObject != Win32Const.OBJID_WINDOW || idChild != Win32Const.CHILDID_SELF) { return; }
-        Capture(HookEventKind.Foreground, hwnd, eventType);
+        EventBus.Post(HookEventKind.Foreground, hwnd, eventType);
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
@@ -107,10 +89,10 @@ internal static unsafe class WinEventHooks
     {
         // Aggressive in-callback filtering (plan section 5.2): top-level visible, not a child,
         // not an owned popup. Drop everything else early - SHOW would otherwise flood the buffer
-        // with tooltip / menu / transient-popup noise.
+        // with tooltip / menu / transient-popup noise. All filter calls are cheap in-process Win32.
         if (idObject != Win32Const.OBJID_WINDOW || idChild != Win32Const.CHILDID_SELF) { return; }
         if (!FilterTopLevelVisible(hwnd)) { return; }
-        Capture(HookEventKind.ObjectShow, hwnd, eventType);
+        EventBus.Post(HookEventKind.ObjectShow, hwnd, eventType);
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
@@ -119,7 +101,7 @@ internal static unsafe class WinEventHooks
     {
         if (idObject != Win32Const.OBJID_WINDOW || idChild != Win32Const.CHILDID_SELF) { return; }
         if (!FilterTopLevelVisible(hwnd)) { return; }
-        Capture(HookEventKind.ObjectFocus, hwnd, eventType);
+        EventBus.Post(HookEventKind.ObjectFocus, hwnd, eventType);
     }
 
     /// <summary>
@@ -136,28 +118,5 @@ internal static unsafe class WinEventHooks
         if ((style & Win32Const.WS_CHILD) != 0) { return false; }
         if (Win32.GetWindow(hwnd, Win32Const.GW_OWNER) != IntPtr.Zero) { return false; }
         return true;
-    }
-
-    /// <summary>
-    /// Hot-path: timestamp + monotonic seq + readonly struct + Post. Target latency &lt; 5 µs.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void Capture(HookEventKind kind, IntPtr hwnd, uint eventType)
-    {
-        var pipeline = s_pipeline;
-        if (pipeline is null) { return; }
-
-        var ev = new RawHookEvent(
-            Seq: Interlocked.Increment(ref s_nextSeq),
-            TickMs: Environment.TickCount64,
-            WallUtc: DateTime.UtcNow,
-            Kind: kind,
-            Hwnd: hwnd,
-            EventType: eventType);
-
-        if (!pipeline.Post(ev))
-        {
-            Interlocked.Increment(ref s_droppedAtIngest);
-        }
     }
 }

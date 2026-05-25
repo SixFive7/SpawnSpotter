@@ -1,13 +1,15 @@
 using System.Runtime.InteropServices;
-using SpawnSpotter.Input;
 using SpawnSpotter.Native;
+using SpawnSpotter.Pipeline;
 
 namespace SpawnSpotter.Hooks;
 
 /// <summary>
-/// System-wide <c>WH_MOUSE_LL</c> hook. Tracks the timestamp (and optionally the position)
-/// of the most recent mouse-button-down. Movement and wheel are ignored. The callback is
-/// a static <c>[UnmanagedCallersOnly]</c> method per plan section 3.
+/// System-wide <c>WH_MOUSE_LL</c> hook. Filters <c>WM_MOUSEMOVE</c> at the callback (high
+/// volume; pure noise for our use case). Button-down events post a single
+/// <see cref="HookEventKind.InputMouseButtonDown"/> into the pipeline. Coordinates are
+/// available via <c>*(MSLLHOOKSTRUCT*)lParam</c> but are NEVER logged anywhere
+/// (plan section 5.4: click coordinates do NOT go to the output schema).
 /// </summary>
 internal static unsafe class MouseHook
 {
@@ -41,6 +43,8 @@ internal static unsafe class MouseHook
             return Win32.CallNextHookEx(IntPtr.Zero, nCode, wParam, lParam);
         }
 
+        // WM_MOUSEMOVE fires 100-500x/s during active mouse use and carries zero useful
+        // signal for the classifier. Drop here at the callback so the pipeline never sees it.
         var msg = (uint)wParam.ToInt64();
         switch (msg)
         {
@@ -48,10 +52,9 @@ internal static unsafe class MouseHook
             case Win32Const.WM_RBUTTONDOWN:
             case Win32Const.WM_MBUTTONDOWN:
             case Win32Const.WM_XBUTTONDOWN:
-                InputState.LastMouseDownTickMs = Environment.TickCount64;
-                // Coords are *available* via *(MSLLHOOKSTRUCT*)lParam but we DO NOT log them
-                // anywhere (plan section 5.4 - click coordinates do NOT go to CSV).
+                EventBus.Post(HookEventKind.InputMouseButtonDown);
                 break;
+            // WM_MOUSEMOVE / WM_MOUSEWHEEL / WM_*BUTTONUP : ignored entirely.
         }
         return Win32.CallNextHookEx(IntPtr.Zero, nCode, wParam, lParam);
     }

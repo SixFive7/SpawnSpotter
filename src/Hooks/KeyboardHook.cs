@@ -2,18 +2,33 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using SpawnSpotter.Input;
 using SpawnSpotter.Native;
+using SpawnSpotter.Pipeline;
 
 namespace SpawnSpotter.Hooks;
 
 /// <summary>
-/// System-wide <c>WH_KEYBOARD_LL</c> hook. The callback is a static <c>[UnmanagedCallersOnly]</c>
-/// method whose address is passed via <c>&amp;KeyboardCallback</c>. Per plan decision #17, the
-/// raw vkCode is converted to a <see cref="KeyCategory"/> inside the callback and IMMEDIATELY
-/// DISCARDED — it never reaches a managed field or log record.
+/// System-wide <c>WH_KEYBOARD_LL</c> hook. Owns the modifier latches (Alt/Ctrl/Shift/Win down).
+/// Categorizes each event using <see cref="KeyCategorizer"/> and decides what semantic event,
+/// if any, to post into the pipeline.
+///
+/// <para>
+/// Privacy boundary: the raw <c>vkCode</c> is consumed locally — categorized, used to update
+/// modifier latches, and used to detect specifically the Alt+Tab gesture — then discarded.
+/// It never reaches a managed field, a posted event, a log record, or anywhere outside this
+/// method. The pipeline only sees the semantic kind (<see cref="HookEventKind.InputKeyDown"/>
+/// / <see cref="HookEventKind.InputAltTabReleased"/> / <see cref="HookEventKind.InputSystemKeyReleased"/>).
+/// </para>
 /// </summary>
 internal static unsafe class KeyboardHook
 {
     private static IntPtr s_hHook;
+
+    // Modifier latches — true while the corresponding key is currently held.
+    // Lock-free: written by the keyboard hook callback (one thread), read by the categorizer.
+    private static int s_altDown;
+    private static int s_ctrlDown;
+    private static int s_shiftDown;
+    private static int s_winDown;
 
     public static void Install()
     {
@@ -46,59 +61,59 @@ internal static unsafe class KeyboardHook
         var data = *(KBDLLHOOKSTRUCT*)lParam;
         var vk = data.VkCode;
         var isUp = (data.Flags & Win32Const.LLKHF_UP) != 0;
-        var nowMs = Environment.TickCount64;
 
-        // Update modifier state BEFORE categorizing, so a Tab fired with Alt held registers Function = System.
+        // Update modifier state BEFORE categorizing — so a Tab fired with Alt held registers
+        // as System (hotkey gesture), not Navigation.
         UpdateModifierState(vk, isUp);
 
-        var category = KeyCategorizer.Categorize(vk, InputState.AnyModifierDown);
+        var anyModifierDown = (s_altDown | s_ctrlDown | s_shiftDown | s_winDown) != 0;
+        var category = KeyCategorizer.Categorize(vk, anyModifierDown);
 
-        // Privacy: vkCode is consumed locally — categorize + tick + side-effects only. Do NOT
-        // stash it. The local variable `vk` falls out of scope at the end of this method.
         if (!isUp)
         {
-            InputState.LastKeyTickMs = nowMs;
+            // Any keydown means the user is touching the keyboard.
+            // This is what keeps the classifier's LastKeyTickMs accurate.
+            EventBus.Post(HookEventKind.InputKeyDown);
         }
         else
         {
-            // Key up. Track release of specific input gestures the classifier cares about:
-            //  * Alt+Tab => LastAltTabReleaseTickMs
-            //  * Anything else categorized as System (Win/Apps/Esc/Print, F1-12 with mod) =>
-            //    LastOtherSystemKeyReleaseTickMs
-            //
-            // We use the AltDown latch *at the time of release* — after the modifier-state update above —
-            // which means an Alt+Tab released while Alt is still held registers correctly, and a Tab
-            // released after Alt was released does NOT (it's just navigation by then).
-            if (vk == Vk.TAB && InputState.AltDown)
+            // Two specific gestures we care about. Other keyups are dropped (they don't
+            // change classification outcome and would be pipeline noise).
+            if (vk == Vk.TAB && s_altDown != 0)
             {
-                InputState.LastAltTabReleaseTickMs = nowMs;
+                // Alt+Tab — Tab released while Alt still held.
+                EventBus.Post(HookEventKind.InputAltTabReleased);
             }
             else if (category == KeyCategory.System)
             {
-                InputState.LastOtherSystemKeyReleaseTickMs = nowMs;
+                // Win / Apps / Esc / Print / Snapshot / F1-12 with modifier.
+                EventBus.Post(HookEventKind.InputSystemKeyReleased);
             }
         }
 
-        // Always forward — we are an observer, never a swallower.
+        // vk falls out of scope here. Privacy: nothing about this keystroke beyond the
+        // semantic kind posted above survives this method.
+
         return Win32.CallNextHookEx(IntPtr.Zero, nCode, wParam, lParam);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void UpdateModifierState(uint vk, bool isUp)
     {
+        var value = isUp ? 0 : 1;
         switch (vk)
         {
             case Vk.MENU or Vk.LMENU or Vk.RMENU:
-                InputState.AltDown = !isUp;
+                Volatile.Write(ref s_altDown, value);
                 break;
             case Vk.CONTROL or Vk.LCONTROL or Vk.RCONTROL:
-                InputState.CtrlDown = !isUp;
+                Volatile.Write(ref s_ctrlDown, value);
                 break;
             case Vk.SHIFT or Vk.LSHIFT or Vk.RSHIFT:
-                InputState.ShiftDown = !isUp;
+                Volatile.Write(ref s_shiftDown, value);
                 break;
             case Vk.LWIN or Vk.RWIN:
-                InputState.WinDown = !isUp;
+                Volatile.Write(ref s_winDown, value);
                 break;
         }
     }

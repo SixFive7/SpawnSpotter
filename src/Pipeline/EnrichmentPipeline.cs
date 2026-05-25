@@ -3,31 +3,32 @@ using System.Threading.Tasks.Dataflow;
 using SpawnSpotter.Classifier;
 using SpawnSpotter.Events;
 using SpawnSpotter.Hooks;
-using SpawnSpotter.Input;
 using SpawnSpotter.Native;
 using SpawnSpotter.Process;
 
 namespace SpawnSpotter.Pipeline;
 
 /// <summary>
-/// Three-stage TPL Dataflow pipeline that decouples WinEvent hook callbacks from all slow work.
+/// Three-stage TPL Dataflow pipeline. All five hooks post into a single buffer; the enricher
+/// branches on event kind (full enrichment for window events, passthrough for input events);
+/// the classifier branches again (state update for input events, classify + emit for window
+/// events). Output ordering matches input ordering thanks to <c>EnsureOrdered = true</c> on
+/// the parallel enricher.
 ///
 /// <para>
 /// Stage 1 — <see cref="BufferBlock{T}"/>&lt;<see cref="RawHookEvent"/>&gt;: receives microsecond-cheap
-/// posts from the hook callbacks. Drop-on-full behavior is achieved by checking the return value
-/// of <see cref="ITargetBlock{TInput}.Post"/>; the callback NEVER awaits or blocks.
+/// posts from all 5 hook callbacks via <see cref="EventBus"/>. Drop-on-full; <see cref="Post"/>
+/// returns false when the buffer is at capacity (counter in <see cref="EventBus"/>).
 /// </para>
 /// <para>
-/// Stage 2 — <see cref="TransformBlock{TInput, TOutput}"/>&lt;<see cref="RawHookEvent"/>,
-/// <see cref="EnrichedEvent"/>&gt;: parallel enrichment with <c>EnsureOrdered = true</c>. Performs
-/// PID lookup, class/title reads, focused+parent+ancestor <see cref="ProcessReader"/> snapshots.
-/// Latency budget here is multi-millisecond — fine, because we're off the hook thread.
+/// Stage 2 — <see cref="TransformBlock{TInput, TOutput}"/>: parallel enrichment, <c>EnsureOrdered=true</c>.
+/// For window events: PID lookup, class/title reads, focused + parent + ancestor snapshots.
+/// For input events: passthrough (the window-only fields stay default).
 /// </para>
 /// <para>
-/// Stage 3 — <see cref="ActionBlock{TInput}"/>&lt;<see cref="EnrichedEvent"/>&gt; with
-/// <c>MaxDegreeOfParallelism = 1, EnsureOrdered = true</c>: runs classifier + dedupe + locked-anchor
-/// bookkeeping + exporter fan-out. Single-threaded so the classifier's mutable state (locked-anchor,
-/// last-hwnd dedupe) needs no locking.
+/// Stage 3 — <see cref="ActionBlock{TInput}"/> with <c>MaxDegreeOfParallelism = 1</c>: classifier
+/// state machine. For window events: dedupe + classify + emit. For input events: update sink-local
+/// last-X timestamps and return without emitting.
 /// </para>
 /// </summary>
 internal sealed class EnrichmentPipeline
@@ -44,12 +45,22 @@ internal sealed class EnrichmentPipeline
     private TransformBlock<RawHookEvent, EnrichedEvent>? _enricher;
     private ActionBlock<EnrichedEvent>? _sink;
 
-    // Sink-only mutable state (single-threaded thanks to MaxDegreeOfParallelism = 1).
+    // ---- Sink-only mutable state (single-threaded thanks to MaxDegreeOfParallelism = 1) ----
+
+    // Locked-anchor + dedupe
     private IntPtr _lockedHwnd;
     private uint _lockedPid;
     private long _lockedAtTickMs;
     private IntPtr _lastHwnd;
     private long _lastTickMs;
+
+    // Last-input timestamps (replace the deleted InputState).
+    // Updated by InputKeyDown / InputAltTabReleased / InputSystemKeyReleased / InputMouseButtonDown
+    // events arriving at the sink. Read when classifying window events.
+    private long _lastKeyTickMs;
+    private long _lastMouseDownTickMs;
+    private long _lastAltTabReleaseTickMs;
+    private long _lastSystemKeyReleaseTickMs;
 
     public EnrichmentPipeline(
         ClassifierConfig config,
@@ -121,7 +132,7 @@ internal sealed class EnrichmentPipeline
     }
 
     /// <summary>
-    /// Hot-path entry point called from the WinEvent hook callbacks. Returns false if the
+    /// Hot-path entry point called from <see cref="EventBus.Post"/>. Returns false if the
     /// buffer is full (drop-on-full semantics; counter incremented by caller).
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -154,15 +165,37 @@ internal sealed class EnrichmentPipeline
     }
 
     // -------------------------------------------------------------------------
-    // Stage 2 — enrichment
+    // Stage 2 — enrichment (branches on Kind)
     // -------------------------------------------------------------------------
 
     /// <summary>
-    /// Runs ON an enricher worker (off the hook thread). Performs PID lookup, class/title reads,
-    /// focused + parent + ancestor snapshots. Returns a fully-populated <see cref="EnrichedEvent"/>.
+    /// Runs on an enricher worker (off the hook thread). Branches on event kind:
+    /// window events get the full enrichment treatment; input + pressure events pass through
+    /// with default values for the window-only fields.
     /// </summary>
     private EnrichedEvent EnrichOne(RawHookEvent raw)
     {
+        if (!raw.Kind.IsWindowEvent())
+        {
+            // Input event or pressure event — no enrichment needed; carry the timestamps and
+            // the Note through. Window-only fields are default.
+            return new EnrichedEvent(
+                Seq: raw.Seq,
+                TickMs: raw.TickMs,
+                WallUtc: raw.WallUtc,
+                Kind: raw.Kind,
+                Hwnd: IntPtr.Zero,
+                EventType: 0,
+                FocusedPid: 0,
+                WindowClass: string.Empty,
+                WindowTitle: string.Empty,
+                FocusedSnapshot: null,
+                ParentSnapshot: null,
+                AncestorChain: [],
+                Note: raw.Note);
+        }
+
+        // Window event — full enrichment.
         var hwnd = raw.Hwnd;
         if (hwnd == IntPtr.Zero)
         {
@@ -202,7 +235,8 @@ internal sealed class EnrichmentPipeline
             WindowTitle: windowTitle,
             FocusedSnapshot: focused,
             ParentSnapshot: parent,
-            AncestorChain: chain);
+            AncestorChain: chain,
+            Note: raw.Note);
     }
 
     private List<ChainNode> BuildChain(ProcessSnapshot? focused, ProcessSnapshot? parent)
@@ -305,10 +339,53 @@ internal sealed class EnrichmentPipeline
     }
 
     // -------------------------------------------------------------------------
-    // Stage 3 — classification + exporter fan-out (single-threaded)
+    // Stage 3 — classification + exporter fan-out (single-threaded; branches on Kind)
     // -------------------------------------------------------------------------
 
     private void ProcessOne(EnrichedEvent ev)
+    {
+        // Input events: state-only update. No row emitted.
+        if (ev.Kind.IsInputEvent())
+        {
+            HandleInputEvent(ev);
+            return;
+        }
+
+        // Pressure events: emit a special record (Phase 3 will implement; for now passthrough as no-op).
+        if (ev.Kind.IsPressureEvent())
+        {
+            // Phase 3 wires PIPELINE_PRESSURE classification + emit. Until then, just ignore.
+            return;
+        }
+
+        // Window event: dedupe + classify + emit.
+        HandleWindowEvent(ev);
+    }
+
+    private void HandleInputEvent(EnrichedEvent ev)
+    {
+        // Each input kind updates exactly the timestamp(s) it represents. _lastKeyTickMs is
+        // updated on every keydown (preserving "ms since user typed anything" semantics).
+        switch (ev.Kind)
+        {
+            case HookEventKind.InputKeyDown:
+                _lastKeyTickMs = ev.TickMs;
+                break;
+            case HookEventKind.InputAltTabReleased:
+                _lastAltTabReleaseTickMs = ev.TickMs;
+                _lastKeyTickMs = ev.TickMs;
+                break;
+            case HookEventKind.InputSystemKeyReleased:
+                _lastSystemKeyReleaseTickMs = ev.TickMs;
+                _lastKeyTickMs = ev.TickMs;
+                break;
+            case HookEventKind.InputMouseButtonDown:
+                _lastMouseDownTickMs = ev.TickMs;
+                break;
+        }
+    }
+
+    private void HandleWindowEvent(EnrichedEvent ev)
     {
         // Cross-source dedupe (plan 5.2): same HWND within the window, drop.
         if (_dedupeWindowMs > 0
@@ -332,9 +409,9 @@ internal sealed class EnrichmentPipeline
             WindowClass: ev.WindowClass,
             ImageBasename: focusedImageBasename,
             ImagePath: focusedImagePath,
-            LastAltTabReleaseTickMs: InputState.LastAltTabReleaseTickMs,
-            LastMouseDownTickMs: InputState.LastMouseDownTickMs,
-            LastOtherSystemKeyReleaseTickMs: InputState.LastOtherSystemKeyReleaseTickMs,
+            LastAltTabReleaseTickMs: _lastAltTabReleaseTickMs,
+            LastMouseDownTickMs: _lastMouseDownTickMs,
+            LastOtherSystemKeyReleaseTickMs: _lastSystemKeyReleaseTickMs,
             MonitorSuppressUntilTickMs: Volatile.Read(ref HookHostThread.MonitorSuppressUntilTickMs),
             LockedHwnd: _lockedHwnd,
             LockedPid: _lockedPid,
@@ -343,9 +420,11 @@ internal sealed class EnrichmentPipeline
 
         var result = FocusClassifier.Classify(input, _config);
 
-        var keyAgeMs = ComputeAge(ev.TickMs, InputState.LastKeyTickMs);
-        var mouseAgeMs = ComputeAge(ev.TickMs, InputState.LastMouseDownTickMs);
-        var idleMs = Math.Min(keyAgeMs, mouseAgeMs);
+        var keyAgeMs = ComputeAge(ev.TickMs, _lastKeyTickMs);
+        var mouseAgeMs = ComputeAge(ev.TickMs, _lastMouseDownTickMs);
+        var idleMs = (keyAgeMs == -1) ? mouseAgeMs
+                   : (mouseAgeMs == -1) ? keyAgeMs
+                   : Math.Min(keyAgeMs, mouseAgeMs);
 
         var record = new EventRecord(
             TimestampUtc: ev.WallUtc,
