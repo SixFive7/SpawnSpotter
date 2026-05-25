@@ -85,31 +85,52 @@ public sealed class Runner(WatchSettings settings)
         pipeline.Start(shutdownCts.Token);
         WinEventHooks.SetPipeline(pipeline);
 
-        // ---------------- Start one STA host thread per hook ----------------
-        // Each hook owns its own thread + message pump, so a slow callback in any hook can never
-        // queue another hook's callbacks behind it. The Foreground host also owns the hidden
-        // top-level window for WM_DISPLAYCHANGE / WM_DPICHANGED (monitor-topology suppression).
-        var mouseHost     = new HookHostThread("Mouse",      MouseHook.Install,             MouseHook.Uninstall);
-        var keyboardHost  = new HookHostThread("Keyboard",   KeyboardHook.Install,          KeyboardHook.Uninstall);
-        var foregroundHost = new HookHostThread("Foreground", WinEventHooks.InstallForeground, WinEventHooks.UninstallForeground, withWindow: true);
-        var showHost      = new HookHostThread("Show",       WinEventHooks.InstallShow,     WinEventHooks.UninstallShow);
-        var focusHost     = new HookHostThread("Focus",      WinEventHooks.InstallFocus,    WinEventHooks.UninstallFocus);
-        var hosts = new[] { mouseHost, keyboardHost, foregroundHost, showHost, focusHost };
+        // ---------------- Start single STA producer thread for all hooks ----------------
+        // All 5 hooks live on one thread. Per-hook isolation isn't needed once callbacks are
+        // structurally sub-microsecond (just stamp + post). What we gain by collapsing to one
+        // producer: tick capture and post are serialized within a single thread, so post order
+        // strictly matches tick order. The classifier sees events in true real-time order with
+        // no merge race and no reorder-buffer timing assumption.
+        var host = new HookHostThread(
+            name: "Hooks",
+            onReady: () =>
+            {
+                try
+                {
+                    WinEventHooks.InstallForeground();
+                    WinEventHooks.InstallShow();
+                    WinEventHooks.InstallFocus();
+                    KeyboardHook.Install();
+                    MouseHook.Install();
+                }
+                catch
+                {
+                    // Rollback partial install before propagating.
+                    MouseHook.Uninstall();
+                    KeyboardHook.Uninstall();
+                    WinEventHooks.UninstallFocus();
+                    WinEventHooks.UninstallShow();
+                    WinEventHooks.UninstallForeground();
+                    throw;
+                }
+            },
+            onTeardown: () =>
+            {
+                MouseHook.Uninstall();
+                KeyboardHook.Uninstall();
+                WinEventHooks.UninstallFocus();
+                WinEventHooks.UninstallShow();
+                WinEventHooks.UninstallForeground();
+            },
+            withWindow: true);  // hidden HWND for WM_DISPLAYCHANGE / WM_DPICHANGED
 
-        var startedHosts = new List<HookHostThread>(hosts.Length);
         try
         {
-            foreach (var h in hosts)
-            {
-                h.Start();
-                startedHosts.Add(h);
-            }
+            host.Start();
         }
         catch (Exception ex)
         {
             System.Console.Error.WriteLine($"Failed to start hook host thread: {ex.Message}");
-            // Tear down any hosts that managed to start (they'll Uninstall their hook on the way out).
-            foreach (var h in startedHosts) { try { h.Stop(); } catch { } }
             await pipeline.StopAsync().ConfigureAwait(false);
             return 1;
         }
@@ -147,11 +168,11 @@ public sealed class Runner(WatchSettings settings)
         catch (OperationCanceledException) { }
 
         // ---------------- Graceful shutdown ----------------
-        // 1) Stop all hook host threads. Each posts WM_QUIT to its STA thread, which finishes any
-        //    in-flight callback, exits the message loop, then invokes onTeardown (uninstall hook).
-        //    Join blocks until each STA thread fully terminates — guaranteeing no hook can fire
+        // 1) Stop the producer thread. Posts WM_QUIT, the STA thread finishes any in-flight
+        //    callback, exits the message loop, invokes onTeardown (uninstall all hooks).
+        //    Join blocks until the STA thread fully terminates — guaranteeing no hook can fire
         //    after this returns.
-        foreach (var h in hosts) { try { h.Stop(); } catch { } }
+        try { host.Stop(); } catch { }
         // 2) Drain the pipeline: complete input, wait for sink to finish all in-flight events.
         await pipeline.StopAsync().ConfigureAwait(false);
         // 3) Flush + dispose exporters.
