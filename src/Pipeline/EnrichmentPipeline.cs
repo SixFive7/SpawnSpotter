@@ -39,6 +39,7 @@ internal sealed class EnrichmentPipeline
     private readonly int _enricherWorkers;
     private readonly Counters _stats;
     private readonly Action<EventRecord>? _onDiagnostic;
+    private readonly ProcessSpawnRegistry? _spawnRegistry;
 
     private BufferBlock<RawHookEvent>? _input;
     private TransformManyBlock<RawHookEvent, EnrichedEvent>? _enricher;
@@ -84,7 +85,8 @@ internal sealed class EnrichmentPipeline
         int dedupeWindowMs,
         bool captureEnv,
         Action<EventRecord>? onDiagnostic,
-        Counters stats)
+        Counters stats,
+        ProcessSpawnRegistry? spawnRegistry = null)
     {
         _config = config;
         _enricherWorkers = enricherWorkers;
@@ -92,6 +94,7 @@ internal sealed class EnrichmentPipeline
         _captureEnv = captureEnv;
         _onDiagnostic = onDiagnostic;
         _stats = stats;
+        _spawnRegistry = spawnRegistry;
 
         // Seed the locked anchor from the current foreground window (plan 5.5 startup init).
         _lockedHwnd = Win32.GetForegroundWindow();
@@ -355,6 +358,26 @@ internal sealed class EnrichmentPipeline
         {
             if (!ProcessReader.TrySnapshot(nextPid, _captureEnv, out var rec))
             {
+                // User-mode OpenProcess failed (process exited or PPL-protected). Fall back to
+                // the ETW-fed spawn registry — if we observed this PID earlier we still know
+                // its parent and image, so the chain can keep walking past the exit boundary.
+                if (_spawnRegistry is not null && _spawnRegistry.TryGet(nextPid, out var info))
+                {
+                    chain.Add(new ChainNode(
+                        Pid: nextPid,
+                        ImagePath: info.ImageName,
+                        ImageBasename: info.ImageName,
+                        CommandLine: string.Empty,
+                        CurrentDirectory: string.Empty,
+                        PackageAumi: null,
+                        Environment: null,
+                        ParentPid: info.ParentPid,
+                        Note: info.ExitedAtTickMs.HasValue ? "via ETW (exited)" : "via ETW"));
+                    seen.Add(nextPid);
+                    nextPid = info.ParentPid;
+                    continue;
+                }
+
                 chain.Add(new ChainNode(
                     Pid: nextPid,
                     ImagePath: "<exited or access denied>",
@@ -574,6 +597,7 @@ internal sealed class EnrichmentPipeline
             case Classification.UserAltTab: _stats.IncrementUserAltTab(); break;
             case Classification.UserClick: _stats.IncrementUserClick(); break;
             case Classification.UserOther: _stats.IncrementUserOther(); break;
+            case Classification.ShellTransient: _stats.IncrementShellTransient(); break;
         }
 
         if (result.DropFromLog)

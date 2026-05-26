@@ -76,6 +76,8 @@ internal static class HtmlReportWriter
   .cls-STEAL { color: #ff7373; font-weight: 600; }
   .cls-SESSION_LOCK { color: #c39bff; }
   .cls-USER_ALT_TAB, .cls-USER_CLICK, .cls-USER_OTHER { color: #79bdff; }
+  .cls-SHELL_TRANSIENT { color: #888; font-style: italic; }
+  .cls-PIPELINE_PRESSURE { color: #ffd87b; }
   .toggle { cursor: pointer; color: #888; user-select: none; }
   .toggle:hover { color: #ddd; }
   .empty { color: #888; }
@@ -95,6 +97,8 @@ internal static class HtmlReportWriter
       <option>USER_ALT_TAB</option>
       <option>USER_CLICK</option>
       <option>USER_OTHER</option>
+      <option>SHELL_TRANSIENT</option>
+      <option>PIPELINE_PRESSURE</option>
     </select>
   </label>
   <label>Search title/class:

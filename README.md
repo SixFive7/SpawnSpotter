@@ -4,7 +4,9 @@ Logs the process chain behind every focus change you didn't ask for.
 
 A Windows 11 tool that catches the sub-second window flashes (cmd.exe, conhost.exe, docker.exe, node.exe, etc.) that steal keyboard focus and corrupt typing. For each "steal" event it records UTC timestamp, the focused window, the full parent process chain (PID, image path, command line, cwd), and how long it had been since you actually typed or clicked.
 
-Runs as a standard user — no admin, no kernel driver, no service install. Single 11 MB self-contained .exe (Native AOT).
+Single 11 MB self-contained .exe (Native AOT). No kernel driver, no service install — the only persistent change to the machine is the daily log files.
+
+**Elevation required.** SpawnSpotter requests `requireAdministrator` via its manifest: the ETW kernel-process provider it uses for spawner attribution (so the chain can keep walking past `<exited>` PIDs) needs admin. UAC prompts once at launch; nothing else.
 
 ---
 
@@ -50,12 +52,14 @@ For a bounded run:
 | `-v, --verbosity <0..3>` | `0` | `0`=STEAL+SESSION_LOCK only · `1`=+USER_* · `2`=+diagnostics · `3`=+raw event stream (key **categories** only — never key contents). |
 | `--threshold-ms <INT>` | `500` | Classifier window for "input preceded this focus change?" (ms). |
 | `--threshold-alt-tab-ms <INT>` | = `--threshold-ms` | Per-source override for Alt+Tab. |
-| `--threshold-click-ms <INT>` | = `--threshold-ms` | Per-source override for click. |
+| `--threshold-click-ms <INT>` | `5000` | Click threshold (ms). Independent of `--threshold-ms` — slow-following popups (file dialogs, taskbar previews) can take seconds to receive focus after the actual click. |
 | `--threshold-other-ms <INT>` | = `--threshold-ms` | Per-source override for other system keys. |
 | `--dedupe-window-ms <INT>` | `50` | Drops same-HWND duplicates across the three WinEvent sources within this window. |
 | `--max-chain-depth <INT>` | `20` | Safety cap on parent-chain walker. |
 | `--ignore-class <PATTERN>` | (none) | Glob matched against the new window's class name. Drops matching events. Repeatable. |
 | `--ignore-image <PATTERN>` | (none) | Glob matched against the focused image basename. Drops matching events. Repeatable. |
+| `--shell-class <PATTERN>` | (none) | Extends the built-in `SHELL_TRANSIENT` class catalogue (`PopupHost`, `Xaml_WindowedPopupClass`, `XamlExplorerHostIslandWindow`, `ForegroundStaging`, etc.). Matching events classify as `SHELL_TRANSIENT` instead of `STEAL`. Repeatable. |
+| `--no-shell-classify` | off | Disables `SHELL_TRANSIENT` classification entirely — built-in shell-host classes fall through to standard classification and may appear as `STEAL`. |
 | `--locked-hwnd-ttl-min <INT>` | `5` | Minutes of no user input after which the "what was the user really doing?" anchor is cleared. `0` disables the timeout. |
 | `--capture-env` | off | Capture full per-process env (`KEY=VALUE`) into JSONL chain nodes. **WARNING: secrets land in logs.** |
 | `--enricher-workers <N>` | `max(2, ProcessorCount/4)` | Parallel enrichment workers in the pipeline (stage 2). |
@@ -65,7 +69,7 @@ For a bounded run:
 | Code | Meaning |
 |---|---|
 | `0` | Graceful shutdown (Ctrl+C or `--duration` / `--max-steals` expired) |
-| `1` | Startup error (hook install failed) |
+| `1` | Startup error (not elevated, ETW session failed to start, hook install failed) |
 | `2` | Bad CLI arguments |
 | other non-zero | Unhandled exception |
 
@@ -212,6 +216,50 @@ The modifier latches (`Alt/Ctrl/Shift/Win down`) live as private statics on the 
 
 When the BufferBlock crosses 90% full (or drops back below 70% with hysteresis), the enricher prepends a synthetic event to its next output. That event flows through the pipeline like everything else and emerges as a row in every exporter with `classification=PIPELINE_PRESSURE`, `monitored_via=INTERNAL`, and a `note` like `"buffer pressure: 940/1024 (91%)"`. Its position in the seq-order tells the analyst exactly when the pressure built up. Detected on the dequeue side so the pressure event itself doesn't compete for buffer space with the events causing the pressure.
 
+### ETW spawner attribution
+
+The user-mode chain walker opens each PID with `PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ` and reads parent / image / cmdline / cwd. For short-lived flashes (think `WindowsTerminal.exe -Embedding`, or any of the popup `cmd.exe`/`conhost.exe` invocations) the process is gone by the time we walk to it — `OpenProcess` returns null and the chain truncates with `<exited or access denied>`.
+
+To get past that boundary, SpawnSpotter runs a private real-time ETW session subscribed to `Microsoft-Windows-Kernel-Process` (provider GUID `{22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716}`, keyword `WINEVENT_KEYWORD_PROCESS = 0x10`). A consumer thread drains `EVENT_RECORD`s through a hand-rolled decoder for event IDs **1 (ProcessStart)**, **2 (ProcessStop)**, and **15 (ProcessRundown)** into a `ProcessSpawnRegistry` keyed by PID. When the chain walker hits a dead PID, it consults the registry — recovering parent + image basename for the dead process and continuing the walk up to `--max-chain-depth`. Recovered nodes are marked `note: "via ETW (exited)"` in the log.
+
+```
+          +----------------------+        +---------------------+
+          | ETW session          |        | ProcessSpawnRegistry|
+          | SpawnSpotter-{pid}   | events | ConcurrentDictionary|
+          | provider: Kernel-    +-------> { pid -> { ppid,    |
+          |   Process keyword    | (1/2/  |           image,   |
+          |   WINEVENT_KEYWORD_  |   15)  |           observed,|
+          |   PROCESS            |        |           exited?  |
+          +----------------------+        |         } }        |
+                                          | TTL: 10 min post-  |
+                                          | exit, 60 min abs   |
+                                          +---------+----------+
+                                                    |
+                                                    | consulted on
+                                                    | OpenProcess
+                                                    | failure
+                                                    v
+                                          +---------------------+
+                                          | enricher chain walk |
+                                          | continues past dead |
+                                          | PIDs                |
+                                          +---------------------+
+```
+
+The session name embeds the process ID so concurrent runs don't collide; leaked sessions from prior crashes are trivially identifiable via `logman query -ets | findstr SpawnSpotter` and can be cleaned with `logman stop "SpawnSpotter-{pid}" -ets`. On normal shutdown the session is stopped cleanly.
+
+**Privacy note on ETW.** The kernel-process provider does NOT emit command lines — it only gives us PID, ParentPID, SessionID, Flags, and ImageName. Recovered chain nodes therefore have `command_line=""`. The user-mode walker still grabs cmdlines for live processes via `NtQueryInformationProcess`, and `--capture-env` still controls whether environment blocks are captured. So enabling spawner attribution does not change the privacy surface — no new fields are captured that weren't already.
+
+**Hard-fail on ETW startup error.** If the session can't be created (no admin rights, or another session with the same name already exists), SpawnSpotter prints the error and exits with code 1 rather than silently degrading to no spawner attribution. The user re-runs once the obstacle is cleared.
+
+### SHELL_TRANSIENT classification
+
+Hovering over taskbar thumbnails, opening the Start menu, switching input languages — all of these briefly transfer focus to a shell-owned XAML popup host class (`PopupHost`, `Xaml_WindowedPopupClass`, `XamlExplorerHostIslandWindow`, `ForegroundStaging`, `Shell_TrayWnd`). They look identical to a real STEAL to the timing classifier: no recent keypress, no recent click on the new window, foreground changed.
+
+The classifier checks the window class against a built-in catalogue ([src/Classifier/ShellTransientPatterns.cs](src/Classifier/ShellTransientPatterns.cs)) just before the standard input-source classification. A match emits `SHELL_TRANSIENT` instead of `STEAL`, preserves the current locked anchor (so the log still says "the user was working on `Code.exe` when this happened"), and does not update the anchor. Suppressing them at the classifier level (instead of via `--ignore-class`) keeps them visible at `-v 1+` for verification, surfaces the count in the exit summary, but keeps the default `-v 0` STEAL log clean.
+
+Add custom shell-host classes with `--shell-class <PATTERN>` (repeatable). Disable the catalogue entirely with `--no-shell-classify` if you want full transparency.
+
 ---
 
 ## Output formats
@@ -234,7 +282,7 @@ Default is `csv,jsonl`. Opt-in to more via `--format csv,jsonl,logfmt,md,log,htm
 | Field | Type | Notes |
 |---|---|---|
 | `timestamp_utc` | ISO 8601 (ms precision) | The OS-recorded time of the event (from `KBDLLHOOKSTRUCT.time` / `MSLLHOOKSTRUCT.time` / `dwmsEventTime`), reconstructed to a full 64-bit timestamp. |
-| `classification` | enum | `STEAL` / `SESSION_LOCK` / `USER_ALT_TAB` / `USER_CLICK` / `USER_OTHER` / `PIPELINE_PRESSURE` |
+| `classification` | enum | `STEAL` / `SESSION_LOCK` / `USER_ALT_TAB` / `USER_CLICK` / `USER_OTHER` / `SHELL_TRANSIENT` / `PIPELINE_PRESSURE` |
 | `monitored_via` | enum | `EVENT_SYSTEM_FOREGROUND` / `EVENT_OBJECT_SHOW` / `EVENT_OBJECT_FOCUS` / `INTERNAL` (for `PIPELINE_PRESSURE` rows) |
 | `hwnd` | hex string | New foreground / shown / focused window handle. |
 | `window_class` | string | Win32 window class name. |
@@ -246,7 +294,7 @@ Default is `csv,jsonl`. Opt-in to more via `--format csv,jsonl,logfmt,md,log,htm
 | `idle_time_ms` | int | `min(key_age_ms, mouse_age_ms)`. |
 | `locked_hwnd_before` | hex string | The HWND that was "what the user was really working on" before this event, or `0x0` if expired / destroyed. |
 | `locked_pid_before` | int | PID for `locked_hwnd_before`. |
-| `note` | string | Free-text annotation (`"parent already exited"`, `"locked anchor expired"`, `"monitor topology change"`, `"buffer pressure: 940/1024 (91%)"`, etc.). |
+| `note` | string | Free-text annotation (`"parent already exited"`, `"locked anchor expired"`, `"monitor topology change"`, `"buffer pressure: 940/1024 (91%)"`, `"shell-transient class"`, `"via ETW (exited)"`, etc.). |
 
 ---
 
@@ -279,27 +327,37 @@ The AOT publish step requires Visual Studio Build Tools on PATH for `vswhere.exe
 ```
 SpawnSpotter/
 ├── plan.md                          full design spec (691 lines)
+├── app.manifest                     requireAdministrator + DPI + OS-compat
 ├── SpawnSpotter.csproj              main project (PublishAot=true)
 ├── Directory.Packages.props         central package management
 ├── global.json                      pins .NET 10 SDK
-├── Program.cs                       entry point + CLI registration
+├── Program.cs                       entry point + CLI registration + admin precheck
 ├── src/
 │   ├── Cli/                         Spectre.Console.Cli commands + settings + duration converter
 │   ├── Classifier/                  pure classifier + glob matcher + truth-table inputs/outputs
-│   ├── Events/                      Classification (incl. PipelinePressure), MonitoredVia, EventRecord schema
+│   │                                 + ShellTransientPatterns (built-in catalogue)
+│   ├── Events/                      Classification (incl. ShellTransient, PipelinePressure),
+│   │                                 MonitoredVia, EventRecord schema
 │   ├── Export/                      6 exporters + canonical EventRecord encoders + JSON source-gen
-│   ├── Hooks/                       HookHostThread (single producer STA), MouseHook, KeyboardHook, WinEventHooks
+│   ├── Hooks/                       HookHostThread (single producer STA), MouseHook, KeyboardHook,
+│   │                                 WinEventHooks
 │   ├── Input/                       KeyCategorizer (pure: vkCode -> KeyCategory)
-│   ├── Lifecycle/                   Runner: wires the whole thing (including BroadcastBlock fan-out)
-│   ├── Native/                      Win32.cs ([LibraryImport] P/Invoke), Win32Types.cs (structs)
+│   ├── Lifecycle/                   Runner: wires the whole thing (including ETW + BroadcastBlock)
+│   ├── Native/                      Win32.cs + Win32Types.cs (Win32 P/Invoke), Etw.cs (ETW P/Invoke
+│   │                                 + structs)
 │   ├── Pipeline/                    EventBus (hook post entry), RawHookEvent, EnrichedEvent,
-│   │                                 EnrichmentPipeline (TransformManyBlock + BroadcastBlock), Counters
+│   │                                 EnrichmentPipeline (TransformManyBlock + BroadcastBlock),
+│   │                                 Counters, EtwSession (kernel-process trace session),
+│   │                                 EtwConsumer (real-time event consumer thread),
+│   │                                 ProcessSpawnRegistry (PID -> spawn info, TTL pruning),
+│   │                                 EtwPayloadDecoder (hand-rolled binary decoder for events 1/2/15)
 │   ├── Process/                     ProcessReader (NT API + RPM PEB walker), ProcessSnapshot
 │   └── Ui/                          ConsoleUx (verbosity logic), StatusLine
 └── tests/
-    └── SpawnSpotter.Tests/          TUnit; 153 tests covering classifier truth-table, key
-                                      categorizer, glob matcher, duration converter, exporter
-                                      formats, HTML report
+    └── SpawnSpotter.Tests/          TUnit; 177 tests covering classifier truth-table (incl.
+                                      SHELL_TRANSIENT), key categorizer, glob matcher, duration
+                                      converter, exporter formats, HTML report, ETW payload
+                                      decoder, ProcessSpawnRegistry TTL semantics
 ```
 
 ---
@@ -318,3 +376,9 @@ Sections of the plan that have been **superseded** by later refactors:
 - Hook event timestamps from `Environment.TickCount64` at callback time — switched to **OS-recorded event time** from the hook data structs (`KBDLLHOOKSTRUCT.time` / `MSLLHOOKSTRUCT.time` / `dwmsEventTime`), reconstructed to a full 64-bit timestamp.
 
 Everything else in the plan (privacy model, AOT discipline, classifier truth-table, record schema, CLI surface, exporter formats, exit codes) holds.
+
+Additions beyond the original plan:
+
+- **`SHELL_TRANSIENT` classification** for known shell-host XAML popup classes (deflects taskbar previews / Start menu / language fly-outs / DWM compositor surfaces out of STEAL). User-extendable via `--shell-class`; killable via `--no-shell-classify`.
+- **`--threshold-click-ms` default bumped 500 → 5000.** Slow-following popups (file dialogs, taskbar previews) routinely take seconds to actually receive focus after the click that opened them — the tighter window mis-classified real `USER_CLICK` events as `STEAL`.
+- **Elevation + ETW spawner attribution.** Originally OUT OF SCOPE (plan §6 / §3 — admin requirement banned). Reintroduced because the user-mode walker truncates at `<exited>` on the short-lived process flashes that motivated the whole tool. `Microsoft-Windows-Kernel-Process` is the lowest-blast-radius option: documented public provider, no kernel driver, no TraceEvent NuGet (hand-rolled `[LibraryImport]` per plan §3). Requires `requireAdministrator` manifest.

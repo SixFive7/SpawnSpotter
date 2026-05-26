@@ -415,4 +415,108 @@ public class FocusClassifierTests
         await Assert.That(r.Classification).IsEqualTo(Classification.UserOther);
         await Assert.That(r.UpdateLockedAnchor).IsTrue();
     }
+
+    // -------------------------------------------------------------------------
+    // SHELL_TRANSIENT classification (built-in catalogue + --shell-class override
+    // + --no-shell-classify kill switch). Plan: deflect known shell hover-popups
+    // out of STEAL but keep them in the log with the current anchor preserved.
+    // -------------------------------------------------------------------------
+
+    [Test]
+    public async Task ShellTransient_BuiltInPopupHost_IsShellTransient()
+    {
+        var input = Base() with
+        {
+            WindowClass = "Xaml_WindowedPopupClass",
+            ImageBasename = "explorer.exe",
+            ImagePath = @"C:\Windows\explorer.exe",
+        };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.ShellTransient);
+        await Assert.That(r.Note).IsEqualTo("shell-transient class");
+        await Assert.That(r.UpdateLockedAnchor).IsFalse();
+        await Assert.That(r.LockedHwndBefore).IsEqualTo((IntPtr)0x2000);  // anchor preserved
+    }
+
+    [Test]
+    public async Task ShellTransient_ForegroundStaging_IsShellTransient()
+    {
+        var input = Base() with { WindowClass = "ForegroundStaging" };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.ShellTransient);
+    }
+
+    [Test]
+    public async Task ShellTransient_UserAddedPattern_IsShellTransient()
+    {
+        var cfg = DefaultCfg with { ShellTransientClassGlobs = ["My*FlyOut"] };
+        var input = Base() with { WindowClass = "MyCustomFlyOut" };
+        var r = FocusClassifier.Classify(input, cfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.ShellTransient);
+    }
+
+    [Test]
+    public async Task ShellTransient_DisabledViaNoShellClassify_FallsThroughToStandard()
+    {
+        // Without the deflector the built-in PopupHost class falls through to standard
+        // classification — and with no recent input, that's STEAL.
+        var cfg = DefaultCfg with { DisableShellClassify = true };
+        var input = Base() with { WindowClass = "PopupHost" };
+        var r = FocusClassifier.Classify(input, cfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.Steal);
+    }
+
+    [Test]
+    public async Task ShellTransient_SessionLockTakesPrecedence()
+    {
+        // LogonUI.exe with a shell-transient-looking class: SESSION_LOCK must still win
+        // (it's pipeline step 1, well before SHELL_TRANSIENT at step 4). Real lock-screen
+        // transitions sometimes flash through XAML popup hosts; we must not misclassify
+        // them as transient.
+        var input = Base() with
+        {
+            ImageBasename = "LogonUI.exe",
+            ImagePath = @"C:\Windows\System32\LogonUI.exe",
+            WindowClass = "PopupHost",  // a built-in shell-transient pattern
+        };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.SessionLock);
+    }
+
+    [Test]
+    public async Task ShellTransient_IgnoreFilterTakesPrecedence()
+    {
+        // Ignore filters (step 3) come before SHELL_TRANSIENT (step 4). If the user
+        // explicitly --ignore-class'd a class that also matches a shell pattern, the
+        // ignore-drop wins (no row written at all).
+        var cfg = DefaultCfg with { IgnoreClassGlobs = ["PopupHost"] };
+        var input = Base() with { WindowClass = "PopupHost" };
+        var r = FocusClassifier.Classify(input, cfg);
+        await Assert.That(r.DropFromLog).IsTrue();
+    }
+
+    [Test]
+    public async Task ShellTransient_NormalConsoleClass_FallsThroughToStandard()
+    {
+        // ConsoleWindowClass is not in the built-in catalogue — must still be STEAL
+        // when no recent input. Pins the negative case: SHELL_TRANSIENT is opt-in by
+        // class, not a default sink.
+        var r = FocusClassifier.Classify(Base(), DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.Steal);
+    }
+
+    // -------------------------------------------------------------------------
+    // Click threshold default bump (500 → 5000): a 2-second-old click should now
+    // still classify as USER_CLICK under defaults, where it would previously have
+    // been STEAL. This pins the new headline default behavior — slow-following
+    // popups (file dialogs, taskbar previews) get the benefit of the doubt.
+    // -------------------------------------------------------------------------
+
+    [Test]
+    public async Task ClickThresholdDefault_TwoSecondsOldClick_IsUserClick()
+    {
+        var input = Base(100_000) with { LastMouseDownTickMs = 98_000 }; // 2000 ms ago
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.UserClick);
+    }
 }

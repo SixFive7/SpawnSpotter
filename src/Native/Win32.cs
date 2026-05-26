@@ -150,6 +150,20 @@ internal static partial class Win32
     public static partial int NtQueryInformationProcess(IntPtr ProcessHandle, int ProcessInformationClass, IntPtr ProcessInformation, uint ProcessInformationLength, out uint ReturnLength);
 
     // =========================================================================
+    // Privilege check
+    // =========================================================================
+
+    /// <summary>
+    /// Returns TRUE when the current thread token is a member of the local Administrators
+    /// group AND the token is elevated (i.e., UAC has granted us admin rights for this
+    /// process). Returns FALSE for split-token standard processes even if the user is an
+    /// admin. Defensive belt-and-braces check used at startup — the app.manifest already
+    /// requests requireAdministrator, so the OS-level UAC prompt happens before we run.
+    /// </summary>
+    [LibraryImport("shell32.dll", EntryPoint = "IsUserAnAdmin", SetLastError = false)]
+    public static partial BOOL IsUserAnAdmin();
+
+    // =========================================================================
     // Helpers
     // =========================================================================
 

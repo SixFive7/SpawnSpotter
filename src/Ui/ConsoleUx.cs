@@ -117,10 +117,11 @@ internal sealed class ConsoleUx
     public string BuildExitSummary(string logDir)
     {
         var elapsed = DateTime.UtcNow - _startedAtUtc;
+        var shell = _counters.ShellTransient > 0 ? $" SHELL_TRANSIENT={_counters.ShellTransient}" : "";
         var pressure = _counters.PipelinePressure > 0 ? $" PIPELINE_PRESSURE={_counters.PipelinePressure}" : "";
         var droppedCount = EventBus.DroppedAtIngest;
         var dropped = droppedCount > 0 ? $" dropped_at_ingest={droppedCount}" : "";
         return string.Create(CultureInfo.InvariantCulture,
-            $"Ran {elapsed:hh\\:mm\\:ss}. Logged STEAL={_counters.Steal} SESSION_LOCK={_counters.SessionLock} USER_ALT_TAB={_counters.UserAltTab} USER_CLICK={_counters.UserClick} USER_OTHER={_counters.UserOther}{pressure}{dropped}. Files: {logDir}");
+            $"Ran {elapsed:hh\\:mm\\:ss}. Logged STEAL={_counters.Steal} SESSION_LOCK={_counters.SessionLock} USER_ALT_TAB={_counters.UserAltTab} USER_CLICK={_counters.UserClick} USER_OTHER={_counters.UserOther}{shell}{pressure}{dropped}. Files: {logDir}");
     }
 }

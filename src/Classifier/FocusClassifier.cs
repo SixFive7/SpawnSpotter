@@ -54,7 +54,23 @@ public static class FocusClassifier
                 DropFromLog: true);
         }
 
-        // ---- Step 4: standard input-source classification ----
+        // ---- Step 4: SHELL_TRANSIENT (built-in + user-extended class catalogue) ----
+        // Hover-driven taskbar previews, XAML popup hosts, etc. take focus for ~100 ms while the
+        // user moves the mouse over thumbnails. Deflect them out of STEAL but keep them in the log
+        // (with the current locked anchor preserved) so the analyst sees what was happening.
+        if (!config.DisableShellClassify && IsShellTransient(input.WindowClass, config))
+        {
+            return WithAnchorView(input,
+                new ClassifierResult(
+                    Classification: Classification.ShellTransient,
+                    Note: "shell-transient class",
+                    LockedHwndBefore: default, LockedPidBefore: default,
+                    UpdateLockedAnchor: false,
+                    ClearLockedAnchor: false,
+                    DropFromLog: false));
+        }
+
+        // ---- Step 5: standard input-source classification ----
         var deltaAlt = input.NowTickMs - input.LastAltTabReleaseTickMs;
         var deltaClick = input.NowTickMs - input.LastMouseDownTickMs;
         var deltaOther = input.NowTickMs - input.LastOtherSystemKeyReleaseTickMs;
@@ -146,6 +162,18 @@ public static class FocusClassifier
         }
 
         return (input.LockedHwnd, input.LockedPid, shouldClear: false, note: null);
+    }
+
+    private static bool IsShellTransient(string windowClass, ClassifierConfig config)
+    {
+        if (string.IsNullOrEmpty(windowClass)) { return false; }
+        if (GlobMatcher.MatchesAny(windowClass, ShellTransientPatterns.BuiltIn)) { return true; }
+        if (config.ShellTransientClassGlobs.Count > 0
+            && GlobMatcher.MatchesAny(windowClass, config.ShellTransientClassGlobs))
+        {
+            return true;
+        }
+        return false;
     }
 
     private static bool IsLogonUi(string imageBasename)

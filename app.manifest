@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <assemblyIdentity version="1.0.0.0" name="SpawnSpotter" />
+
+  <!--
+    SpawnSpotter requires elevation. The ETW kernel-process provider used for
+    spawner attribution (Microsoft-Windows-Kernel-Process) needs a NT Kernel
+    Logger / system-trace style session, which requires SeSystemProfilePrivilege
+    (effectively administrator on Windows 11).
+
+    UAC will prompt the user once at launch; nothing is installed or persisted
+    on the machine. uiAccess="false" — we are not an accessibility tool.
+  -->
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+
+  <!-- Per-monitor DPI awareness v2 + Windows 11 long-path support. -->
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+    </windowsSettings>
+  </application>
+
+  <!-- Declare Windows 10/11 compatibility so version-aware APIs return the real OS version. -->
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" /><!-- Windows 10 / 11 -->
+    </application>
+  </compatibility>
+</assembly>

@@ -23,12 +23,14 @@ public sealed class Runner(WatchSettings settings)
         // ---------------- Configure ----------------
         var classifierConfig = new ClassifierConfig(
             AltTabThresholdMs: _settings.ThresholdAltTabMs ?? _settings.ThresholdMs,
-            ClickThresholdMs: _settings.ThresholdClickMs ?? _settings.ThresholdMs,
+            ClickThresholdMs: _settings.ThresholdClickMs,
             OtherThresholdMs: _settings.ThresholdOtherMs ?? _settings.ThresholdMs,
             LockedHwndTtlMinutes: _settings.LockedHwndTtlMin,
             MaxChainDepth: _settings.MaxChainDepth,
             IgnoreClassGlobs: _settings.IgnoreClass,
-            IgnoreImageGlobs: _settings.IgnoreImage);
+            IgnoreImageGlobs: _settings.IgnoreImage,
+            ShellTransientClassGlobs: _settings.ShellClass,
+            DisableShellClassify: _settings.NoShellClassify);
 
         var logDir = LogDirectory.Resolve(_settings.LogDir);
         var formats = (_settings.Format ?? "csv,jsonl").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -48,6 +50,31 @@ public sealed class Runner(WatchSettings settings)
         var counters = new Counters();
         var ux = new ConsoleUx(_settings, counters);
 
+        // ---------------- ETW spawner-attribution session + consumer (hard-fail per Q1a) ----------------
+        // The session subscribes to Microsoft-Windows-Kernel-Process and populates a
+        // ProcessSpawnRegistry. The enricher consults the registry when the user-mode chain
+        // walker hits a dead PID — letting us see past the <exited> boundary that frustrates
+        // short-lived flashes (WindowsTerminal.exe -Embedding et al.).
+        ProcessSpawnRegistry? spawnRegistry = null;
+        EtwSession? etwSession = null;
+        EtwConsumer? etwConsumer = null;
+        try
+        {
+            spawnRegistry = new ProcessSpawnRegistry();
+            etwSession = new EtwSession();
+            etwSession.Start();
+            etwConsumer = new EtwConsumer(etwSession.SessionName, spawnRegistry);
+            etwConsumer.Start();
+        }
+        catch (EtwSessionException ex)
+        {
+            System.Console.Error.WriteLine($"ETW startup failed: {ex.Message}");
+            etwConsumer?.Dispose();
+            etwSession?.Dispose();
+            spawnRegistry?.Dispose();
+            return 1;
+        }
+
         // ---------------- Build + start enrichment pipeline ----------------
         var enricherWorkers = _settings.EnricherWorkers ?? Math.Max(2, Environment.ProcessorCount / 4);
 
@@ -63,7 +90,8 @@ public sealed class Runner(WatchSettings settings)
             dedupeWindowMs: _settings.DedupeWindowMs,
             captureEnv: _settings.CaptureEnv,
             onDiagnostic: onDiagnostic,
-            stats: counters);
+            stats: counters,
+            spawnRegistry: spawnRegistry);
 
         pipeline.Start(shutdownCts.Token);
         EventBus.SetPipeline(pipeline);
@@ -209,7 +237,13 @@ public sealed class Runner(WatchSettings settings)
         //    before the broadcast was completed.
         try { await Task.WhenAll(consumers.Select(c => c.Completion)).ConfigureAwait(false); }
         catch { /* swallow — individual consumer faults already logged inside their handlers */ }
-        // 4) Flush + dispose exporters.
+        // 4) Stop ETW: consumer first (so ProcessTrace returns) then the session itself.
+        //    Order matters — stopping the session with a live consumer leaves the consumer
+        //    thread blocked on a session that no longer delivers events.
+        try { etwConsumer?.Stop(); } catch { }
+        try { etwSession?.Stop(); } catch { }
+        spawnRegistry?.Dispose();
+        // 5) Flush + dispose exporters.
         await exporters.FlushAllAsync().ConfigureAwait(false);
         await exporters.DisposeAsync().ConfigureAwait(false);
 

@@ -42,8 +42,8 @@ public sealed class WatchSettings : CommandSettings
     public int? ThresholdAltTabMs { get; init; }
 
     [CommandOption("--threshold-click-ms <INT>")]
-    [Description("Override for click only. Default: equal to --threshold-ms")]
-    public int? ThresholdClickMs { get; init; }
+    [Description("Click threshold in ms (independent of --threshold-ms). Default: 5000. Higher than other thresholds because slow-following popups (taskbar previews, file dialogs) can take seconds to actually receive focus after a click")]
+    public int ThresholdClickMs { get; init; } = 5000;
 
     [CommandOption("--threshold-other-ms <INT>")]
     [Description("Override for other-system only. Default: equal to --threshold-ms")]
@@ -64,6 +64,14 @@ public sealed class WatchSettings : CommandSettings
     [CommandOption("--ignore-image <PATTERN>")]
     [Description("Glob pattern matched against the focused process's image basename. Drops matching events. Repeatable")]
     public string[] IgnoreImage { get; init; } = [];
+
+    [CommandOption("--shell-class <PATTERN>")]
+    [Description("Extend the built-in SHELL_TRANSIENT class catalogue with an additional class-name glob. Matching events are classified as SHELL_TRANSIENT (not STEAL). Repeatable")]
+    public string[] ShellClass { get; init; } = [];
+
+    [CommandOption("--no-shell-classify")]
+    [Description("Disable SHELL_TRANSIENT classification entirely. Built-in shell-host classes (PopupHost, XAML islands, etc.) will fall through to standard classification and may appear as STEAL")]
+    public bool NoShellClassify { get; init; }
 
     [CommandOption("--locked-hwnd-ttl-min <INT>")]
     [Description("Minutes of no user input after which the LockedHwnd anchor is cleared. 0 disables. Default: 5")]
@@ -86,6 +94,10 @@ public sealed class WatchSettings : CommandSettings
         if (ThresholdMs <= 0)
         {
             return Spectre.Console.ValidationResult.Error("--threshold-ms must be > 0");
+        }
+        if (ThresholdClickMs <= 0)
+        {
+            return Spectre.Console.ValidationResult.Error("--threshold-click-ms must be > 0");
         }
         if (DedupeWindowMs < 0)
         {

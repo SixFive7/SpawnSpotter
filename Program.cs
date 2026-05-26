@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using SpawnSpotter.Cli;
+using SpawnSpotter.Native;
 using Spectre.Console.Cli;
 
 namespace SpawnSpotter;
@@ -14,6 +15,19 @@ internal static class Program
         Justification = "Verified at AOT publish time; commands use strongly-typed CommandSettings only.")]
     public static int Main(string[] args)
     {
+        // Defensive admin check. app.manifest requests requireAdministrator so the OS-level
+        // UAC prompt already happened before Main runs; if we land here without elevation it
+        // means someone stripped the manifest or used a development build path that bypasses
+        // it. ETW kernel-process tracing needs elevation — fail fast with a clear message
+        // rather than crashing deep inside StartTraceW with a cryptic ERROR_ACCESS_DENIED.
+        if (!Win32.IsUserAnAdmin())
+        {
+            Console.Error.WriteLine(
+                "SpawnSpotter requires administrator privileges (ETW kernel-process tracing). " +
+                "Right-click the exe and choose 'Run as administrator' or launch from an elevated terminal.");
+            return 1;
+        }
+
         var app = new CommandApp();
         app.Configure(config =>
         {

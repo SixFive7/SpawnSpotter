@@ -29,6 +29,10 @@
 
     <AssemblyTitle>SpawnSpotter</AssemblyTitle>
     <Description>Win32 focus-change logger for Windows 11</Description>
+
+    <!-- Embed the UAC / DPI / OS-compat manifest into the output exe. The manifest
+         requests requireAdministrator — ETW kernel-process tracing needs it. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <!-- Only set self-contained / RID for publish. Build alone produces a normal framework-dependent dll/exe. -->
