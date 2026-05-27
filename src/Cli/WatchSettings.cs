@@ -46,8 +46,8 @@ public sealed class WatchSettings : CommandSettings
     public int ThresholdClickMs { get; init; } = 5000;
 
     [CommandOption("--threshold-other-ms <INT>")]
-    [Description("Override for other-system only. Default: equal to --threshold-ms")]
-    public int? ThresholdOtherMs { get; init; }
+    [Description("System-gesture threshold in ms (Win+key / Esc / Alt+F4 / Print etc.), independent of --threshold-ms. Default: 1500. Gesture-triggered windows (shell launch, snip overlay, app switch) can take ~1s to appear after the keypress")]
+    public int ThresholdOtherMs { get; init; } = 1500;
 
     [CommandOption("--dedupe-window-ms <INT>")]
     [Description("Same-HWND duplicate suppression window in ms across all three WinEvent sources. Default: 50")]
@@ -98,6 +98,10 @@ public sealed class WatchSettings : CommandSettings
         if (ThresholdClickMs <= 0)
         {
             return Spectre.Console.ValidationResult.Error("--threshold-click-ms must be > 0");
+        }
+        if (ThresholdOtherMs <= 0)
+        {
+            return Spectre.Console.ValidationResult.Error("--threshold-other-ms must be > 0");
         }
         if (DedupeWindowMs < 0)
         {

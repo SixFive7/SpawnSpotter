@@ -7,16 +7,16 @@ using SpawnSpotter.Pipeline;
 namespace SpawnSpotter.Hooks;
 
 /// <summary>
-/// System-wide <c>WH_KEYBOARD_LL</c> hook. Owns the modifier latches (Alt/Ctrl/Shift/Win down).
-/// Categorizes each event using <see cref="KeyCategorizer"/> and decides what semantic event,
-/// if any, to post into the pipeline.
+/// System-wide <c>WH_KEYBOARD_LL</c> hook. Owns the modifier latches (Alt/Ctrl/Shift/Win down)
+/// and delegates the per-event decision to <see cref="KeyEventDecision"/>.
 ///
 /// <para>
-/// Privacy boundary: the raw <c>vkCode</c> is consumed locally — categorized, used to update
-/// modifier latches, and used to detect specifically the Alt+Tab gesture — then discarded.
-/// It never reaches a managed field, a posted event, a log record, or anywhere outside this
-/// method. The pipeline only sees the semantic kind (<see cref="HookEventKind.InputKeyDown"/>
-/// / <see cref="HookEventKind.InputAltTabReleased"/> / <see cref="HookEventKind.InputSystemKeyReleased"/>).
+/// Privacy boundary: the raw <c>vkCode</c> is consumed locally — used to update modifier
+/// latches and passed to <see cref="KeyEventDecision.Decide"/> which returns only a
+/// <see cref="HookEventKind"/>. The vkCode itself never reaches a managed field, a posted
+/// event, a log record, or anywhere outside this method. The pipeline only sees the semantic
+/// kind (<see cref="HookEventKind.InputKeyDown"/> / <see cref="HookEventKind.InputAltTabReleased"/>
+/// / <see cref="HookEventKind.InputSystemKeyReleased"/>).
 /// </para>
 /// </summary>
 internal static unsafe class KeyboardHook
@@ -63,33 +63,21 @@ internal static unsafe class KeyboardHook
         var isUp = (data.Flags & Win32Const.LLKHF_UP) != 0;
         var osTime = data.Time;
 
-        // Update modifier state BEFORE categorizing — so a Tab fired with Alt held registers
-        // as System (hotkey gesture), not Navigation.
+        // Update modifier state BEFORE deciding — so a Tab fired with Alt held registers
+        // as the Alt+Tab gesture, and a key released with Win held registers as a Win-combo.
         UpdateModifierState(vk, isUp);
 
-        var anyModifierDown = (s_altDown | s_ctrlDown | s_shiftDown | s_winDown) != 0;
-        var category = KeyCategorizer.Categorize(vk, anyModifierDown);
+        var kind = KeyEventDecision.Decide(
+            vkCode: vk,
+            isUp: isUp,
+            altDown: s_altDown != 0,
+            ctrlDown: s_ctrlDown != 0,
+            shiftDown: s_shiftDown != 0,
+            winDown: s_winDown != 0);
 
-        if (!isUp)
+        if (kind is { } k)
         {
-            // Any keydown means the user is touching the keyboard.
-            // This is what keeps the classifier's LastKeyTickMs accurate.
-            EventBus.Post(HookEventKind.InputKeyDown, osTime32: osTime);
-        }
-        else
-        {
-            // Two specific gestures we care about. Other keyups are dropped (they don't
-            // change classification outcome and would be pipeline noise).
-            if (vk == Vk.TAB && s_altDown != 0)
-            {
-                // Alt+Tab — Tab released while Alt still held.
-                EventBus.Post(HookEventKind.InputAltTabReleased, osTime32: osTime);
-            }
-            else if (category == KeyCategory.System)
-            {
-                // Win / Apps / Esc / Print / Snapshot / F1-12 with modifier.
-                EventBus.Post(HookEventKind.InputSystemKeyReleased, osTime32: osTime);
-            }
+            EventBus.Post(k, osTime32: osTime);
         }
 
         // vk falls out of scope here. Privacy: nothing about this keystroke beyond the

@@ -22,7 +22,7 @@ public sealed record ClassifierConfig(
     public static ClassifierConfig Default { get; } = new(
         AltTabThresholdMs: 500,
         ClickThresholdMs: 5000,
-        OtherThresholdMs: 500,
+        OtherThresholdMs: 1500,
         LockedHwndTtlMinutes: 5,
         MaxChainDepth: 20,
         IgnoreClassGlobs: [],

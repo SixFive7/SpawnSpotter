@@ -53,7 +53,7 @@ For a bounded run:
 | `--threshold-ms <INT>` | `500` | Classifier window for "input preceded this focus change?" (ms). |
 | `--threshold-alt-tab-ms <INT>` | = `--threshold-ms` | Per-source override for Alt+Tab. |
 | `--threshold-click-ms <INT>` | `5000` | Click threshold (ms). Independent of `--threshold-ms` — slow-following popups (file dialogs, taskbar previews) can take seconds to receive focus after the actual click. |
-| `--threshold-other-ms <INT>` | = `--threshold-ms` | Per-source override for other system keys. |
+| `--threshold-other-ms <INT>` | `1500` | System-gesture threshold (Win+key / Esc / Alt+F4 / Print etc.), independent of `--threshold-ms`. Gesture-triggered windows (shell launch, snip overlay, app switch) can take ~1s to appear after the keypress. |
 | `--dedupe-window-ms <INT>` | `50` | Drops same-HWND duplicates across the three WinEvent sources within this window. |
 | `--max-chain-depth <INT>` | `20` | Safety cap on parent-chain walker. |
 | `--ignore-class <PATTERN>` | (none) | Glob matched against the new window's class name. Drops matching events. Repeatable. |
@@ -205,7 +205,7 @@ No reorder buffer, no timing window, no merge race. The ordering correctness is 
 
 1. Reads `VkCode` from `KBDLLHOOKSTRUCT`.
 2. Categorizes it into one of `Modifier / System / TextLike / Navigation / Function / Other` — a pure function in [src/Input/KeyCategorizer.cs](src/Input/KeyCategorizer.cs).
-3. Decides which (if any) semantic event to post: `InputKeyDown` for any keydown, `InputAltTabReleased` for Tab released while Alt held, `InputSystemKeyReleased` for Win/Esc/Print/F-keys-with-mod released.
+3. Decides which (if any) semantic event to post (pure function in [src/Hooks/KeyEventDecision.cs](src/Hooks/KeyEventDecision.cs)): `InputAltTabReleased` for Tab released while Alt held; `InputSystemKeyReleased` for hotkey gestures — Win+anything, Esc, Alt+F4, Print, Win/Apps, F-keys-with-modifier — fired on **key-down** (the OS acts on the press, so the focus change lands before key-up) as well as key-up (Win-alone → Start opens on release); `InputKeyDown` for ordinary typing.
 4. **Discards `VkCode`.** The local variable goes out of scope. The pipeline only sees the semantic kind — nothing about which specific key was pressed.
 
 The schema fields that touch keyboard activity are limited to `key_age_ms` and `idle_time_ms` — millisecond deltas, no key identity. Audited; verified end-to-end.

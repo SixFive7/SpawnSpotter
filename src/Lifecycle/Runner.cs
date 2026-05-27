@@ -24,7 +24,7 @@ public sealed class Runner(WatchSettings settings)
         var classifierConfig = new ClassifierConfig(
             AltTabThresholdMs: _settings.ThresholdAltTabMs ?? _settings.ThresholdMs,
             ClickThresholdMs: _settings.ThresholdClickMs,
-            OtherThresholdMs: _settings.ThresholdOtherMs ?? _settings.ThresholdMs,
+            OtherThresholdMs: _settings.ThresholdOtherMs,
             LockedHwndTtlMinutes: _settings.LockedHwndTtlMin,
             MaxChainDepth: _settings.MaxChainDepth,
             IgnoreClassGlobs: _settings.IgnoreClass,

@@ -283,14 +283,35 @@ public class FocusClassifierTests
     }
 
     [Test]
-    public async Task OtherThresholdOverride_IndependentFromClickAndAltTab()
+    public async Task OtherThresholdOverride_ExtendsBeyondDefault()
     {
-        // Only OtherThresholdMs is bumped; a 700ms-old "other system key" should classify
-        // as USER_OTHER even though the default 500ms would call it STEAL.
-        var cfg = DefaultCfg with { OtherThresholdMs = 1000 };
-        var input = Base(100_000) with { LastOtherSystemKeyReleaseTickMs = 99_300 }; // 700 ms ago
+        // A 2000ms-old "other system key" is STEAL under the 1500ms default but USER_OTHER
+        // with a 3000ms override — pins that the override is honored independently.
+        var cfg = DefaultCfg with { OtherThresholdMs = 3000 };
+        var input = Base(100_000) with { LastOtherSystemKeyReleaseTickMs = 98_000 }; // 2000 ms ago
         var r = FocusClassifier.Classify(input, cfg);
         await Assert.That(r.Classification).IsEqualTo(Classification.UserOther);
+    }
+
+    [Test]
+    public async Task OtherThresholdDefault_OneSecondOldSystemKey_IsUserOther()
+    {
+        // Default bumped 500 -> 1500: gesture-triggered windows (shell launch via Win+E,
+        // snip overlay via Win+Shift+S, app switch via Win+number) can take ~1s to appear
+        // after the keypress. A 1000ms-old system key must classify as USER_OTHER, not STEAL.
+        var input = Base(100_000) with { LastOtherSystemKeyReleaseTickMs = 99_000 }; // 1000 ms ago
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.UserOther);
+    }
+
+    [Test]
+    public async Task OtherThresholdDefault_TwoSecondsOldSystemKey_IsSteal()
+    {
+        // Just past the 1500ms default — falls through to STEAL. Pins the upper edge so the
+        // window doesn't silently widen to swallow genuinely involuntary changes.
+        var input = Base(100_000) with { LastOtherSystemKeyReleaseTickMs = 98_000 }; // 2000 ms ago
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.Steal);
     }
 
     // -------------------------------------------------------------------------
