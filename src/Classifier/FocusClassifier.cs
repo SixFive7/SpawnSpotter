@@ -107,6 +107,15 @@ public static class FocusClassifier
         {
             cls = Classification.UserOther;
         }
+        else if (input.PrevForegroundHwnd != IntPtr.Zero && !input.PrevForegroundIsAlive)
+        {
+            // The window that HAD focus was just destroyed — focus was *released* to this window,
+            // not stolen (e.g. a long-running console command finished and its window closed).
+            // IsWindow on the previous foreground is synchronous and latency-free; that window
+            // held focus moments ago, so its destruction is intrinsically recent (unlike the
+            // ~1s-lagged ETW process-exit signal).
+            cls = Classification.PrevWindowClosed;
+        }
         else
         {
             // No user action explains this focus change. Split by recent activity: if the user
@@ -121,7 +130,16 @@ public static class FocusClassifier
 
         // ---- Locked-anchor view + bookkeeping ----
         var anchorResult = ComputeAnchorView(input, config, cls);
-        return anchorResult with { Classification = cls };
+        var note = anchorResult.Note;
+        if (cls == Classification.PrevWindowClosed && note.Length == 0)
+        {
+            // Keep the more-specific "locked window destroyed" anchor note when the closed
+            // window was also the locked anchor; otherwise describe the released foreground.
+            note = input.PrevForegroundPid != 0
+                ? $"previous foreground (pid {input.PrevForegroundPid}) closed"
+                : "previous foreground closed";
+        }
+        return anchorResult with { Classification = cls, Note = note };
     }
 
     /// <summary>For SESSION_LOCK / monitor topology - they don't update the anchor but

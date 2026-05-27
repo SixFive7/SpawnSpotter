@@ -79,6 +79,7 @@ internal static class HtmlReportWriter
   .cls-USER_ALT_TAB, .cls-USER_CLICK, .cls-USER_OTHER { color: #79bdff; }
   .cls-SHELL_TRANSIENT { color: #888; font-style: italic; }
   .cls-PIPELINE_PRESSURE { color: #ffd87b; }
+  .cls-PREV_WINDOW_CLOSED { color: #6fcf97; }
   .toggle { cursor: pointer; color: #888; user-select: none; }
   .toggle:hover { color: #ddd; }
   .empty { color: #888; }
@@ -100,6 +101,7 @@ internal static class HtmlReportWriter
       <option>USER_CLICK</option>
       <option>USER_OTHER</option>
       <option>SHELL_TRANSIENT</option>
+      <option>PREV_WINDOW_CLOSED</option>
       <option>PIPELINE_PRESSURE</option>
     </select>
   </label>

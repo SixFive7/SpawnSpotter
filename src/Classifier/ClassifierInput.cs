@@ -28,4 +28,11 @@ public readonly record struct ClassifierInput(
     bool ModifierHeld = false,
     // Tick of the most recent input of ANY kind (key or mouse); 0 if none seen. Drives the
     // STEAL (idle) vs MAYBE_STEAL (recently active) split.
-    long LastInputTickMs = 0);
+    long LastInputTickMs = 0,
+    // The window that held the foreground immediately before this event, and whether it is still
+    // a valid window. If it was destroyed (IsWindow == false), focus was released to this window,
+    // not stolen → PREV_WINDOW_CLOSED. PrevForegroundIsAlive defaults true so the check stays
+    // inert unless the caller wires the previous foreground in.
+    IntPtr PrevForegroundHwnd = default,
+    uint PrevForegroundPid = 0,
+    bool PrevForegroundIsAlive = true);

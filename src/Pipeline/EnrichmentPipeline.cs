@@ -71,6 +71,12 @@ internal sealed class EnrichmentPipeline
     private IntPtr _lastHwnd;
     private long _lastTickMs;
 
+    // The window that currently holds the foreground — i.e. the "previous foreground" from the
+    // perspective of the NEXT window event. If it has been destroyed by the time the next
+    // foreground event arrives, focus was released (PREV_WINDOW_CLOSED), not stolen.
+    private IntPtr _prevForegroundHwnd;
+    private uint _prevForegroundPid;
+
     // Last-input timestamps (replace the deleted InputState).
     // Updated by InputKeyDown / InputAltTabReleased / InputSystemKeyReleased / InputMouseButtonDown
     // events arriving at the sink. Read when classifying window events.
@@ -557,7 +563,10 @@ internal sealed class EnrichmentPipeline
             LockedAtTickMs: _lockedAtTickMs,
             LockedHwndIsAlive: _lockedHwnd == IntPtr.Zero ? false : Win32.IsWindow(_lockedHwnd),
             ModifierHeld: ev.ModifierHeld,
-            LastInputTickMs: lastInputTickMs);
+            LastInputTickMs: lastInputTickMs,
+            PrevForegroundHwnd: _prevForegroundHwnd,
+            PrevForegroundPid: _prevForegroundPid,
+            PrevForegroundIsAlive: _prevForegroundHwnd == IntPtr.Zero || Win32.IsWindow(_prevForegroundHwnd));
 
         var result = FocusClassifier.Classify(input, _config);
 
@@ -597,6 +606,17 @@ internal sealed class EnrichmentPipeline
             _lockedAtTickMs = ev.TickMs;
         }
 
+        // Remember this window as the foreground for the NEXT event's PREV_WINDOW_CLOSED check.
+        // Exclude transient popups, the lock screen, and ignore-filtered drops — none of those
+        // are "the window you were looking at".
+        if (!result.DropFromLog
+            && result.Classification != Classification.ShellTransient
+            && result.Classification != Classification.SessionLock)
+        {
+            _prevForegroundHwnd = ev.Hwnd;
+            _prevForegroundPid = ev.FocusedPid;
+        }
+
         switch (result.Classification)
         {
             case Classification.Steal: _stats.IncrementSteal(); break;
@@ -606,6 +626,7 @@ internal sealed class EnrichmentPipeline
             case Classification.UserClick: _stats.IncrementUserClick(); break;
             case Classification.UserOther: _stats.IncrementUserOther(); break;
             case Classification.ShellTransient: _stats.IncrementShellTransient(); break;
+            case Classification.PrevWindowClosed: _stats.IncrementPrevWindowClosed(); break;
         }
 
         if (result.DropFromLog)

@@ -16,6 +16,10 @@ namespace SpawnSpotter.Events;
 /// <c>--steal-idle</c> (default 5min), so the change is high-confidence involuntary — the bucket to
 /// act on. <see cref="MaybeSteal"/> = the user was active within that window, so it could be a
 /// delayed consequence of something they did.
+///
+/// <see cref="PrevWindowClosed"/> marks a focus change that happened because the window that
+/// previously held the foreground was destroyed (e.g. a long-running console command finished
+/// and its window closed). Focus was released to the next window, not stolen.
 /// </summary>
 public enum Classification
 {
@@ -27,6 +31,7 @@ public enum Classification
     PipelinePressure,
     ShellTransient,
     MaybeSteal,
+    PrevWindowClosed,
 }
 
 internal static class ClassificationExtensions
@@ -41,6 +46,7 @@ internal static class ClassificationExtensions
         Classification.UserOther => "USER_OTHER",
         Classification.PipelinePressure => "PIPELINE_PRESSURE",
         Classification.ShellTransient => "SHELL_TRANSIENT",
+        Classification.PrevWindowClosed => "PREV_WINDOW_CLOSED",
         _ => c.ToString(),
     };
 }

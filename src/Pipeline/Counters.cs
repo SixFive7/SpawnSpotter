@@ -3,7 +3,7 @@ namespace SpawnSpotter.Pipeline;
 /// <summary>Atomic per-classification counters. Read by the UX status line; updated by the pipeline sink.</summary>
 internal sealed class Counters
 {
-    private long _steal, _maybeSteal, _sessionLock, _userAltTab, _userClick, _userOther, _shellTransient, _pipelinePressure;
+    private long _steal, _maybeSteal, _sessionLock, _userAltTab, _userClick, _userOther, _shellTransient, _pipelinePressure, _prevWindowClosed;
     private long _droppedAtIngest;
 
     public long Steal => Volatile.Read(ref _steal);
@@ -14,6 +14,7 @@ internal sealed class Counters
     public long UserOther => Volatile.Read(ref _userOther);
     public long ShellTransient => Volatile.Read(ref _shellTransient);
     public long PipelinePressure => Volatile.Read(ref _pipelinePressure);
+    public long PrevWindowClosed => Volatile.Read(ref _prevWindowClosed);
     public long DroppedAtIngest => Volatile.Read(ref _droppedAtIngest);
 
     public void IncrementSteal() => Interlocked.Increment(ref _steal);
@@ -24,5 +25,6 @@ internal sealed class Counters
     public void IncrementUserOther() => Interlocked.Increment(ref _userOther);
     public void IncrementShellTransient() => Interlocked.Increment(ref _shellTransient);
     public void IncrementPipelinePressure() => Interlocked.Increment(ref _pipelinePressure);
+    public void IncrementPrevWindowClosed() => Interlocked.Increment(ref _prevWindowClosed);
     public void IncrementDroppedAtIngest() => Interlocked.Increment(ref _droppedAtIngest);
 }

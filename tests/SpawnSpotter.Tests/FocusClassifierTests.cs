@@ -658,4 +658,93 @@ public class FocusClassifierTests
         var r = FocusClassifier.Classify(input, DefaultCfg);
         await Assert.That(r.Classification).IsEqualTo(Classification.UserClick);
     }
+
+    // -------------------------------------------------------------------------
+    // PREV_WINDOW_CLOSED: the window that held the foreground was destroyed, so focus was
+    // *released* to this window rather than stolen. Detected via IsWindow on the previous
+    // foreground (PrevForegroundIsAlive == false). Sits in the no-user-action branch, ahead
+    // of the STEAL/MAYBE_STEAL split but behind the explicit user-action checks.
+    // -------------------------------------------------------------------------
+
+    [Test]
+    public async Task PrevForegroundDestroyed_NoInput_IsPrevWindowClosed()
+    {
+        // Would be STEAL (no recent input), but the window that had focus is gone.
+        var input = Base() with
+        {
+            PrevForegroundHwnd = (IntPtr)0x9000,
+            PrevForegroundPid = 4321,
+            PrevForegroundIsAlive = false,
+        };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.PrevWindowClosed);
+        await Assert.That(r.Note).Contains("previous foreground");
+        await Assert.That(r.UpdateLockedAnchor).IsFalse();
+    }
+
+    [Test]
+    public async Task PrevForegroundDestroyed_RecentClick_StaysUserClick()
+    {
+        // A deliberate click within threshold wins attribution over the prev-closed check
+        // (e.g. the user clicked the X to close the window — that's user-driven).
+        var input = Base(100_000) with
+        {
+            LastMouseDownTickMs = 99_900, // 100 ms ago
+            PrevForegroundHwnd = (IntPtr)0x9000,
+            PrevForegroundIsAlive = false,
+        };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.UserClick);
+    }
+
+    [Test]
+    public async Task PrevForegroundDestroyed_RecentTyping_IsPrevWindowClosed()
+    {
+        // "Hit Enter, the command ran and its window closed." A plain keydown sets
+        // LastInputTickMs but none of the user-action release timestamps, so attribution falls
+        // through to the prev-closed check rather than the MAYBE_STEAL split.
+        var input = Base(100_000) with
+        {
+            LastInputTickMs = 99_000, // typed 1s ago
+            PrevForegroundHwnd = (IntPtr)0x9000,
+            PrevForegroundIsAlive = false,
+        };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.PrevWindowClosed);
+    }
+
+    [Test]
+    public async Task PrevForegroundAlive_NoInput_IsSteal()
+    {
+        // Previous foreground still exists → normal STEAL fall-through, unchanged.
+        var input = Base() with
+        {
+            PrevForegroundHwnd = (IntPtr)0x9000,
+            PrevForegroundIsAlive = true,
+        };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.Steal);
+    }
+
+    [Test]
+    public async Task NoPrevForeground_NoInput_IsSteal()
+    {
+        // Zero handle (e.g. the first event after startup) must not false-trigger
+        // PREV_WINDOW_CLOSED. Base() leaves PrevForegroundHwnd at its default (IntPtr.Zero).
+        var r = FocusClassifier.Classify(Base(), DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.Steal);
+    }
+
+    [Test]
+    public async Task PrevForegroundDestroyed_DoesNotUpdateAnchor()
+    {
+        // Focus was released to us, not user-driven — the anchor must not move to this window.
+        var input = Base() with
+        {
+            PrevForegroundHwnd = (IntPtr)0x9000,
+            PrevForegroundIsAlive = false,
+        };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.UpdateLockedAnchor).IsFalse();
+    }
 }
