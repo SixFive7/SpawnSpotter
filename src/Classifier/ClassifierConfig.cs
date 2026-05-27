@@ -17,7 +17,10 @@ public sealed record ClassifierConfig(
     IReadOnlyList<string> IgnoreClassGlobs,
     IReadOnlyList<string> IgnoreImageGlobs,
     IReadOnlyList<string> ShellTransientClassGlobs,
-    bool DisableShellClassify)
+    bool DisableShellClassify,
+    // Idle window for the STEAL vs MAYBE_STEAL split: an unexplained focus change with no
+    // key/mouse activity for at least this long is high-confidence STEAL; within it, MAYBE_STEAL.
+    int StealActiveWindowMs)
 {
     public static ClassifierConfig Default { get; } = new(
         AltTabThresholdMs: 500,
@@ -28,5 +31,6 @@ public sealed record ClassifierConfig(
         IgnoreClassGlobs: [],
         IgnoreImageGlobs: [],
         ShellTransientClassGlobs: [],
-        DisableShellClassify: false);
+        DisableShellClassify: false,
+        StealActiveWindowMs: 5 * 60 * 1000);
 }

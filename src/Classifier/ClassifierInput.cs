@@ -23,4 +23,9 @@ public readonly record struct ClassifierInput(
     IntPtr LockedHwnd,
     uint LockedPid,
     long LockedAtTickMs,
-    bool LockedHwndIsAlive);
+    bool LockedHwndIsAlive,
+    // Win/Alt physically held at the moment this window event fired (gesture in progress).
+    bool ModifierHeld = false,
+    // Tick of the most recent input of ANY kind (key or mouse); 0 if none seen. Drives the
+    // STEAL (idle) vs MAYBE_STEAL (recently active) split.
+    long LastInputTickMs = 0);

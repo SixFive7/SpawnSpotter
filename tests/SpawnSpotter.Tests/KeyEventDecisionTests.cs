@@ -215,14 +215,27 @@ public class KeyEventDecisionTests
     [Arguments(Vk.CONTROL)]
     [Arguments(Vk.LCONTROL)]
     [Arguments(Vk.RCONTROL)]
-    [Arguments(Vk.MENU)]
-    [Arguments(Vk.LMENU)]
-    [Arguments(Vk.RMENU)]
-    public async Task ModifierReleased_WhileWinHeld_IsDropped(uint vk)
+    public async Task ShiftOrCtrlReleased_WhileWinHeld_IsDropped(uint vk)
     {
+        // Shift/Ctrl are not gesture-completion modifiers (held constantly during normal work),
+        // so releasing them — even with Win held — carries no classification signal.
         var k = KeyEventDecision.Decide(vkCode: vk, isUp: true,
             altDown: false, ctrlDown: false, shiftDown: false, winDown: true);
         await Assert.That(k).IsNull();
+    }
+
+    [Test]
+    [Arguments(Vk.MENU)]
+    [Arguments(Vk.LMENU)]
+    [Arguments(Vk.RMENU)]
+    public async Task AltReleased_IsSystemGesture(uint vk)
+    {
+        // Releasing Alt completes a gesture — the Alt+Tab switcher commits on Alt-up. This
+        // must fire even though Alt is Modifier-category and may have been held far longer than
+        // any threshold. (UpdateModifierState clears altDown before Decide runs, hence false.)
+        var k = KeyEventDecision.Decide(vkCode: vk, isUp: true,
+            altDown: false, ctrlDown: false, shiftDown: false, winDown: false);
+        await Assert.That(k).IsEqualTo(HookEventKind.InputSystemKeyReleased);
     }
 
     // -------------------------------------------------------------------------

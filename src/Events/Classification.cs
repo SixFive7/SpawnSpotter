@@ -10,6 +10,12 @@ namespace SpawnSpotter.Events;
 /// previews, Foreground Staging surfaces, etc.) away from STEAL. These windows briefly take focus
 /// because the user is hovering over taskbar / Start / explorer thumbnails — legitimate, user-driven,
 /// and not a candidate for the "involuntary focus theft" bucket.
+///
+/// <see cref="Steal"/> vs <see cref="MaybeSteal"/> split an otherwise-unexplained focus change by
+/// recent input: <see cref="Steal"/> = the machine was idle (no key/mouse) for at least
+/// <c>--steal-idle</c> (default 5min), so the change is high-confidence involuntary — the bucket to
+/// act on. <see cref="MaybeSteal"/> = the user was active within that window, so it could be a
+/// delayed consequence of something they did.
 /// </summary>
 public enum Classification
 {
@@ -20,6 +26,7 @@ public enum Classification
     UserOther,
     PipelinePressure,
     ShellTransient,
+    MaybeSteal,
 }
 
 internal static class ClassificationExtensions
@@ -27,6 +34,7 @@ internal static class ClassificationExtensions
     public static string ToWireValue(this Classification c) => c switch
     {
         Classification.Steal => "STEAL",
+        Classification.MaybeSteal => "MAYBE_STEAL",
         Classification.SessionLock => "SESSION_LOCK",
         Classification.UserAltTab => "USER_ALT_TAB",
         Classification.UserClick => "USER_CLICK",

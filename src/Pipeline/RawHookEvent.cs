@@ -47,7 +47,8 @@ internal readonly record struct RawHookEvent(
     HookEventKind Kind,
     IntPtr Hwnd,
     uint EventType,
-    string? Note);
+    string? Note,
+    bool ModifierHeld = false);
 
 internal static class HookEventKindExtensions
 {

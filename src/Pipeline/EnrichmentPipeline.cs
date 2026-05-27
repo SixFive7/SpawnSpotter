@@ -284,7 +284,8 @@ internal sealed class EnrichmentPipeline
                 FocusedSnapshot: null,
                 ParentSnapshot: null,
                 AncestorChain: [],
-                Note: raw.Note);
+                Note: raw.Note,
+                ModifierHeld: raw.ModifierHeld);
         }
 
         // Window event — full enrichment.
@@ -328,7 +329,8 @@ internal sealed class EnrichmentPipeline
             FocusedSnapshot: focused,
             ParentSnapshot: parent,
             AncestorChain: chain,
-            Note: raw.Note);
+            Note: raw.Note,
+            ModifierHeld: raw.ModifierHeld);
     }
 
     private List<ChainNode> BuildChain(ProcessSnapshot? focused, ProcessSnapshot? parent)
@@ -536,6 +538,9 @@ internal sealed class EnrichmentPipeline
         var focusedImageBasename = ev.FocusedSnapshot?.ImageBasename ?? string.Empty;
         var focusedImagePath = ev.FocusedSnapshot?.ImagePath ?? string.Empty;
 
+        // Most-recent input of ANY kind (key or mouse) — feeds the STEAL vs MAYBE_STEAL split.
+        var lastInputTickMs = Math.Max(_lastKeyTickMs, _lastMouseDownTickMs);
+
         var input = new ClassifierInput(
             NowTickMs: ev.TickMs,
             Hwnd: ev.Hwnd,
@@ -550,7 +555,9 @@ internal sealed class EnrichmentPipeline
             LockedHwnd: _lockedHwnd,
             LockedPid: _lockedPid,
             LockedAtTickMs: _lockedAtTickMs,
-            LockedHwndIsAlive: _lockedHwnd == IntPtr.Zero ? false : Win32.IsWindow(_lockedHwnd));
+            LockedHwndIsAlive: _lockedHwnd == IntPtr.Zero ? false : Win32.IsWindow(_lockedHwnd),
+            ModifierHeld: ev.ModifierHeld,
+            LastInputTickMs: lastInputTickMs);
 
         var result = FocusClassifier.Classify(input, _config);
 
@@ -593,6 +600,7 @@ internal sealed class EnrichmentPipeline
         switch (result.Classification)
         {
             case Classification.Steal: _stats.IncrementSteal(); break;
+            case Classification.MaybeSteal: _stats.IncrementMaybeSteal(); break;
             case Classification.SessionLock: _stats.IncrementSessionLock(); break;
             case Classification.UserAltTab: _stats.IncrementUserAltTab(); break;
             case Classification.UserClick: _stats.IncrementUserClick(); break;

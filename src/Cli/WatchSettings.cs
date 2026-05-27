@@ -49,6 +49,11 @@ public sealed class WatchSettings : CommandSettings
     [Description("System-gesture threshold in ms (Win+key / Esc / Alt+F4 / Print etc.), independent of --threshold-ms. Default: 1500. Gesture-triggered windows (shell launch, snip overlay, app switch) can take ~1s to appear after the keypress")]
     public int ThresholdOtherMs { get; init; } = 1500;
 
+    [CommandOption("--steal-idle <SPAN>")]
+    [Description("Idle window for the STEAL/MAYBE_STEAL split. An unexplained focus change with no keyboard/mouse activity for at least this long is a high-confidence STEAL; within it, MAYBE_STEAL. Examples: 5m, 2m30s, 90s. Default: 5m")]
+    [TypeConverter(typeof(DurationConverter))]
+    public TimeSpan? StealIdle { get; init; }
+
     [CommandOption("--dedupe-window-ms <INT>")]
     [Description("Same-HWND duplicate suppression window in ms across all three WinEvent sources. Default: 50")]
     public int DedupeWindowMs { get; init; } = 50;

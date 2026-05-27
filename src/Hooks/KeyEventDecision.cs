@@ -61,6 +61,16 @@ internal static class KeyEventDecision
             return HookEventKind.InputAltTabReleased;
         }
 
+        // Releasing Win or Alt completes a gesture and is the moment the OS commits a held
+        // switch (Alt+Tab → target window, Win+Tab task-view → selection). The committing
+        // foreground change fires right around this release and must not be a STEAL even if
+        // the modifier was held far longer than any threshold. Win is System-category (caught
+        // below); Alt is Modifier-category, so catch the Alt keys explicitly here.
+        if (vkCode is Vk.MENU or Vk.LMENU or Vk.RMENU)
+        {
+            return HookEventKind.InputSystemKeyReleased;
+        }
+
         // Release-triggered gestures: tapping Win ALONE opens Start on key-up (the press did
         // nothing), so we must catch it here — by now UpdateModifierState has cleared winDown
         // for the Win key itself, so it lands via the System-category arm of IsHotkeyGesture.

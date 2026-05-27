@@ -39,10 +39,11 @@ internal sealed class ConsoleUx
         {
             return true;
         }
-        // Verbosity 0: STEAL + SESSION_LOCK.
+        // Verbosity 0: STEAL + MAYBE_STEAL + SESSION_LOCK (both steal-confidence levels are
+        // actionable, so both show at the default verbosity).
         if (_settings.Verbosity <= 0)
         {
-            return cls is Classification.Steal or Classification.SessionLock;
+            return cls is Classification.Steal or Classification.MaybeSteal or Classification.SessionLock;
         }
         // Verbosity >= 1: + USER_*.
         return true;
@@ -53,10 +54,11 @@ internal sealed class ConsoleUx
 
     public void HandleEvent(EventRecord r)
     {
-        if (r.Classification == Classification.Steal)
+        if (r.Classification is Classification.Steal or Classification.MaybeSteal)
         {
+            var prefix = r.Classification == Classification.MaybeSteal ? "maybe " : "";
             _lastStealOneLiner = string.Create(CultureInfo.InvariantCulture,
-                $"{string.Join(" ◄ ", BasenameChain(r))}");
+                $"{prefix}{string.Join(" ◄ ", BasenameChain(r))}");
             _lastStealAt = r.TimestampUtc.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
         }
         if (ShouldRenderPerEvent && ShouldShowEvent(r.Classification))
@@ -101,6 +103,7 @@ internal sealed class ConsoleUx
         var sb = new System.Text.StringBuilder(256);
         sb.Append("[SpawnSpotter] uptime ").Append(uptime.ToString(@"hh\:mm\:ss", CultureInfo.InvariantCulture));
         sb.Append(" | STEAL ").Append(_counters.Steal);
+        sb.Append("  MAYBE_STEAL ").Append(_counters.MaybeSteal);
         sb.Append("  SESSION_LOCK ").Append(_counters.SessionLock);
         sb.Append("  USER_ALT_TAB ").Append(_counters.UserAltTab);
         sb.Append("  USER_CLICK ").Append(_counters.UserClick);
@@ -122,6 +125,6 @@ internal sealed class ConsoleUx
         var droppedCount = EventBus.DroppedAtIngest;
         var dropped = droppedCount > 0 ? $" dropped_at_ingest={droppedCount}" : "";
         return string.Create(CultureInfo.InvariantCulture,
-            $"Ran {elapsed:hh\\:mm\\:ss}. Logged STEAL={_counters.Steal} SESSION_LOCK={_counters.SessionLock} USER_ALT_TAB={_counters.UserAltTab} USER_CLICK={_counters.UserClick} USER_OTHER={_counters.UserOther}{shell}{pressure}{dropped}. Files: {logDir}");
+            $"Ran {elapsed:hh\\:mm\\:ss}. Logged STEAL={_counters.Steal} MAYBE_STEAL={_counters.MaybeSteal} SESSION_LOCK={_counters.SessionLock} USER_ALT_TAB={_counters.UserAltTab} USER_CLICK={_counters.UserClick} USER_OTHER={_counters.UserOther}{shell}{pressure}{dropped}. Files: {logDir}");
     }
 }

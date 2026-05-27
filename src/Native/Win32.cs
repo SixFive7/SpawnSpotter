@@ -90,6 +90,15 @@ internal static partial class Win32
 
     public const int GWL_STYLE = -16;
 
+    /// <summary>
+    /// Real-time physical key state. High bit (0x8000) of the return is set while the key is
+    /// physically down. Used in the WinEvent callbacks to detect a held Win/Alt at the exact
+    /// moment the foreground changed — authoritative (immune to a missed key-up desyncing our
+    /// own modifier latches).
+    /// </summary>
+    [LibraryImport("user32.dll", EntryPoint = "GetAsyncKeyState", SetLastError = false)]
+    public static partial short GetAsyncKeyState(int vKey);
+
     // =========================================================================
     // WinEvent hook
     // =========================================================================

@@ -27,4 +27,5 @@ internal readonly record struct EnrichedEvent(
     ProcessSnapshot? FocusedSnapshot,
     ProcessSnapshot? ParentSnapshot,
     IReadOnlyList<ChainNode> AncestorChain,
-    string? Note);
+    string? Note,
+    bool ModifierHeld = false);

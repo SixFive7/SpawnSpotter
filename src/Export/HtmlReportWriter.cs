@@ -74,6 +74,7 @@ internal static class HtmlReportWriter
   tr.detail-row td { padding: 8px 16px; }
   pre { font: 12px/1.4 Consolas, monospace; background: #111; padding: 8px; overflow-x: auto; border-radius: 4px; }
   .cls-STEAL { color: #ff7373; font-weight: 600; }
+  .cls-MAYBE_STEAL { color: #ffb347; font-weight: 600; }
   .cls-SESSION_LOCK { color: #c39bff; }
   .cls-USER_ALT_TAB, .cls-USER_CLICK, .cls-USER_OTHER { color: #79bdff; }
   .cls-SHELL_TRANSIENT { color: #888; font-style: italic; }
@@ -93,6 +94,7 @@ internal static class HtmlReportWriter
     <select id="cls">
       <option value="">All classifications</option>
       <option>STEAL</option>
+      <option>MAYBE_STEAL</option>
       <option>SESSION_LOCK</option>
       <option>USER_ALT_TAB</option>
       <option>USER_CLICK</option>

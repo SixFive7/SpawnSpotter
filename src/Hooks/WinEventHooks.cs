@@ -80,7 +80,8 @@ internal static unsafe class WinEventHooks
         int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
     {
         if (idObject != Win32Const.OBJID_WINDOW || idChild != Win32Const.CHILDID_SELF) { return; }
-        EventBus.Post(HookEventKind.Foreground, hwnd, eventType, osTime32: dwmsEventTime);
+        EventBus.Post(HookEventKind.Foreground, hwnd, eventType, osTime32: dwmsEventTime,
+            modifierHeld: IsWinOrAltHeld());
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
@@ -92,7 +93,8 @@ internal static unsafe class WinEventHooks
         // with tooltip / menu / transient-popup noise. All filter calls are cheap in-process Win32.
         if (idObject != Win32Const.OBJID_WINDOW || idChild != Win32Const.CHILDID_SELF) { return; }
         if (!FilterTopLevelVisible(hwnd)) { return; }
-        EventBus.Post(HookEventKind.ObjectShow, hwnd, eventType, osTime32: dwmsEventTime);
+        EventBus.Post(HookEventKind.ObjectShow, hwnd, eventType, osTime32: dwmsEventTime,
+            modifierHeld: IsWinOrAltHeld());
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
@@ -101,7 +103,26 @@ internal static unsafe class WinEventHooks
     {
         if (idObject != Win32Const.OBJID_WINDOW || idChild != Win32Const.CHILDID_SELF) { return; }
         if (!FilterTopLevelVisible(hwnd)) { return; }
-        EventBus.Post(HookEventKind.ObjectFocus, hwnd, eventType, osTime32: dwmsEventTime);
+        EventBus.Post(HookEventKind.ObjectFocus, hwnd, eventType, osTime32: dwmsEventTime,
+            modifierHeld: IsWinOrAltHeld());
+    }
+
+    /// <summary>
+    /// True if Win or Alt is physically held at this instant. Queried via
+    /// <see cref="Win32.GetAsyncKeyState"/> inside the callback so it reflects the modifier
+    /// state at the exact moment the foreground changed (the classifier runs later, async,
+    /// by which point the key may be released). Win/Alt only — Ctrl/Shift are held constantly
+    /// during normal work and would mask genuine steals. Ctrl+Win+Arrow is covered via Win.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool IsWinOrAltHeld()
+    {
+        const int VK_MENU = 0x12;  // Alt (combined L/R)
+        const int VK_LWIN = 0x5B;
+        const int VK_RWIN = 0x5C;
+        return (Win32.GetAsyncKeyState(VK_MENU) & 0x8000) != 0
+            || (Win32.GetAsyncKeyState(VK_LWIN) & 0x8000) != 0
+            || (Win32.GetAsyncKeyState(VK_RWIN) & 0x8000) != 0;
     }
 
     /// <summary>

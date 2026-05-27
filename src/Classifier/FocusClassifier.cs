@@ -70,7 +70,26 @@ public static class FocusClassifier
                     DropFromLog: false));
         }
 
-        // ---- Step 5: standard input-source classification ----
+        // ---- Step 5: held-modifier suppression ----
+        // Win or Alt was physically down when this window event fired (captured in the WinEvent
+        // callback). The user is mid-gesture — holding Alt through an Alt+Tab, Win through
+        // Win+number cycling, Ctrl+Win through a virtual-desktop switch — so any focus change
+        // during the hold is user-driven, however long the hold lasts. Reported as USER_OTHER;
+        // the anchor is NOT updated (the foreground during a hold is often transient, e.g. the
+        // task-view UI; the real target is committed on release and classified then).
+        if (input.ModifierHeld)
+        {
+            return WithAnchorView(input,
+                new ClassifierResult(
+                    Classification: Classification.UserOther,
+                    Note: "modifier held",
+                    LockedHwndBefore: default, LockedPidBefore: default,
+                    UpdateLockedAnchor: false,
+                    ClearLockedAnchor: false,
+                    DropFromLog: false));
+        }
+
+        // ---- Step 6: standard input-source classification ----
         var deltaAlt = input.NowTickMs - input.LastAltTabReleaseTickMs;
         var deltaClick = input.NowTickMs - input.LastMouseDownTickMs;
         var deltaOther = input.NowTickMs - input.LastOtherSystemKeyReleaseTickMs;
@@ -90,7 +109,14 @@ public static class FocusClassifier
         }
         else
         {
-            cls = Classification.Steal;
+            // No user action explains this focus change. Split by recent activity: if the user
+            // touched the keyboard/mouse within StealActiveWindowMs it's a MAYBE_STEAL (could be
+            // a delayed consequence of something they did); if the machine was idle that long,
+            // it's a high-confidence STEAL — the signature of an involuntary, app-driven steal.
+            var idleMs = input.LastInputTickMs > 0 ? input.NowTickMs - input.LastInputTickMs : long.MaxValue;
+            cls = (idleMs >= 0 && idleMs < config.StealActiveWindowMs)
+                ? Classification.MaybeSteal
+                : Classification.Steal;
         }
 
         // ---- Locked-anchor view + bookkeeping ----

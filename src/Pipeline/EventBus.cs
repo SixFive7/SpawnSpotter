@@ -43,7 +43,7 @@ internal static class EventBus
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool Post(HookEventKind kind, IntPtr hwnd = default, uint eventType = 0,
-                            uint osTime32 = 0, string? note = null)
+                            uint osTime32 = 0, string? note = null, bool modifierHeld = false)
     {
         var pipeline = s_pipeline;
         if (pipeline is null) { return false; }
@@ -76,7 +76,8 @@ internal static class EventBus
             Kind: kind,
             Hwnd: hwnd,
             EventType: eventType,
-            Note: note);
+            Note: note,
+            ModifierHeld: modifierHeld);
         if (!pipeline.Post(ev))
         {
             Interlocked.Increment(ref s_droppedAtIngest);

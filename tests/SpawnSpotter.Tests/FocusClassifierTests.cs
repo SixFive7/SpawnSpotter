@@ -540,4 +540,122 @@ public class FocusClassifierTests
         var r = FocusClassifier.Classify(input, DefaultCfg);
         await Assert.That(r.Classification).IsEqualTo(Classification.UserClick);
     }
+
+    // -------------------------------------------------------------------------
+    // Held-modifier suppression (Win/Alt physically down at event time). While
+    // mid-gesture, focus changes are user-driven however long the hold lasts.
+    // Pipeline step 5: after SESSION_LOCK / monitor / ignore / shell-transient,
+    // before standard classification.
+    // -------------------------------------------------------------------------
+
+    [Test]
+    public async Task ModifierHeld_NoRecentInput_IsUserOther()
+    {
+        // Would be STEAL (no recent input), but Win/Alt is held → user is mid-gesture.
+        var input = Base() with { ModifierHeld = true };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.UserOther);
+        await Assert.That(r.Note).IsEqualTo("modifier held");
+    }
+
+    [Test]
+    public async Task ModifierHeld_DoesNotUpdateAnchor_ButReportsIt()
+    {
+        // The foreground during a hold is often transient (task-view UI); the real target is
+        // committed on release and classified then. So don't move the anchor here.
+        var input = Base() with { ModifierHeld = true };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.UpdateLockedAnchor).IsFalse();
+        await Assert.That(r.LockedHwndBefore).IsEqualTo((IntPtr)0x2000);
+    }
+
+    [Test]
+    public async Task ModifierHeld_SessionLockStillWins()
+    {
+        var input = Base() with
+        {
+            ModifierHeld = true,
+            ImageBasename = "LogonUI.exe",
+            ImagePath = @"C:\Windows\System32\LogonUI.exe",
+            WindowClass = "LockScreenBackstopFrame",
+        };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.SessionLock);
+    }
+
+    [Test]
+    public async Task ModifierHeld_IgnoreFilterStillWins()
+    {
+        // Ignore filters (step 3) precede the held-modifier step (step 5).
+        var cfg = DefaultCfg with { IgnoreClassGlobs = ["ConsoleWindowClass"] };
+        var input = Base() with { ModifierHeld = true };
+        var r = FocusClassifier.Classify(input, cfg);
+        await Assert.That(r.DropFromLog).IsTrue();
+    }
+
+    // -------------------------------------------------------------------------
+    // STEAL vs MAYBE_STEAL split (--steal-idle, default 5min). An unexplained focus
+    // change is high-confidence STEAL only if the machine was idle that long;
+    // otherwise it's MAYBE_STEAL.
+    // -------------------------------------------------------------------------
+
+    [Test]
+    public async Task Steal_NoInputEverSeen_IsForSureSteal()
+    {
+        // Base has LastInputTickMs = 0 (no input observed) → idle → high-confidence STEAL.
+        var r = FocusClassifier.Classify(Base(), DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.Steal);
+    }
+
+    [Test]
+    public async Task Steal_RecentInput_IsMaybeSteal()
+    {
+        // Any key/mouse activity 1s ago (well within the 5min default) → MAYBE_STEAL.
+        var input = Base(100_000) with { LastInputTickMs = 99_000 };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.MaybeSteal);
+    }
+
+    [Test]
+    public async Task Steal_OldInput_IsForSureSteal()
+    {
+        // Last input 6min ago, default idle window 5min → high-confidence STEAL.
+        var now = 6 * 60 * 1000L + 100_000;
+        var input = Base(now) with { LastInputTickMs = 100_000 };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.Steal);
+    }
+
+    [Test]
+    public async Task MaybeSteal_DoesNotUpdateAnchor()
+    {
+        var input = Base(100_000) with { LastInputTickMs = 99_000 };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.MaybeSteal);
+        await Assert.That(r.UpdateLockedAnchor).IsFalse();
+        await Assert.That(r.LockedHwndBefore).IsEqualTo((IntPtr)0x2000);
+    }
+
+    [Test]
+    public async Task StealIdleSplit_RespectsEdges()
+    {
+        // StealActiveWindowMs = 300_000 (5min). 299s ago → MAYBE_STEAL; 301s ago → STEAL.
+        var inside = Base(299_000L + 100_000) with { LastInputTickMs = 100_000 };
+        await Assert.That(FocusClassifier.Classify(inside, DefaultCfg).Classification)
+            .IsEqualTo(Classification.MaybeSteal);
+
+        var outside = Base(301_000L + 100_000) with { LastInputTickMs = 100_000 };
+        await Assert.That(FocusClassifier.Classify(outside, DefaultCfg).Classification)
+            .IsEqualTo(Classification.Steal);
+    }
+
+    [Test]
+    public async Task RecentClick_StaysUserClick_NotSplit()
+    {
+        // The split only touches the fall-through STEAL path. A recent click is USER_CLICK
+        // regardless of LastInputTickMs.
+        var input = Base(100_000) with { LastMouseDownTickMs = 99_900, LastInputTickMs = 99_900 };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.UserClick);
+    }
 }

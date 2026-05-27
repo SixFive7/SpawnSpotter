@@ -30,7 +30,8 @@ public sealed class Runner(WatchSettings settings)
             IgnoreClassGlobs: _settings.IgnoreClass,
             IgnoreImageGlobs: _settings.IgnoreImage,
             ShellTransientClassGlobs: _settings.ShellClass,
-            DisableShellClassify: _settings.NoShellClassify);
+            DisableShellClassify: _settings.NoShellClassify,
+            StealActiveWindowMs: (int)(_settings.StealIdle ?? TimeSpan.FromMinutes(5)).TotalMilliseconds);
 
         var logDir = LogDirectory.Resolve(_settings.LogDir);
         var formats = (_settings.Format ?? "csv,jsonl").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);

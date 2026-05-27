@@ -49,11 +49,12 @@ For a bounded run:
 | `-m, --mode <MODE>` | `interactive` | One of `interactive` (live status line + scrolling events), `silent` (no UI; file logs only), `status-only` (status line, no per-event lines). |
 | `-d, --duration <SPAN>` | (unset = forever) | Auto-stop after this span. Examples: `90s`, `45m`, `2h`, `1d`, `2h30m`. |
 | `--max-steals <N>` | (unset) | Stop after N STEAL events. Combines with `--duration` (whichever first). |
-| `-v, --verbosity <0..3>` | `0` | `0`=STEAL+SESSION_LOCK only · `1`=+USER_* · `2`=+diagnostics · `3`=+raw event stream (key **categories** only — never key contents). |
+| `-v, --verbosity <0..3>` | `0` | `0`=STEAL+MAYBE_STEAL+SESSION_LOCK only · `1`=+USER_*+SHELL_TRANSIENT · `2`=+diagnostics · `3`=+raw event stream (key **categories** only — never key contents). |
 | `--threshold-ms <INT>` | `500` | Classifier window for "input preceded this focus change?" (ms). |
 | `--threshold-alt-tab-ms <INT>` | = `--threshold-ms` | Per-source override for Alt+Tab. |
 | `--threshold-click-ms <INT>` | `5000` | Click threshold (ms). Independent of `--threshold-ms` — slow-following popups (file dialogs, taskbar previews) can take seconds to receive focus after the actual click. |
 | `--threshold-other-ms <INT>` | `1500` | System-gesture threshold (Win+key / Esc / Alt+F4 / Print etc.), independent of `--threshold-ms`. Gesture-triggered windows (shell launch, snip overlay, app switch) can take ~1s to appear after the keypress. |
+| `--steal-idle <SPAN>` | `5m` | Idle window for the STEAL/MAYBE_STEAL split. An unexplained focus change with no keyboard/mouse activity for at least this long is high-confidence `STEAL`; within it, `MAYBE_STEAL`. Examples: `5m`, `2m30s`, `90s`. |
 | `--dedupe-window-ms <INT>` | `50` | Drops same-HWND duplicates across the three WinEvent sources within this window. |
 | `--max-chain-depth <INT>` | `20` | Safety cap on parent-chain walker. |
 | `--ignore-class <PATTERN>` | (none) | Glob matched against the new window's class name. Drops matching events. Repeatable. |
@@ -260,6 +261,21 @@ The classifier checks the window class against a built-in catalogue ([src/Classi
 
 Add custom shell-host classes with `--shell-class <PATTERN>` (repeatable). Disable the catalogue entirely with `--no-shell-classify` if you want full transparency.
 
+### Held-modifier suppression
+
+A keyboard gesture's focus change can land *while you're still holding the modifier* — Alt held through an Alt+Tab, Win held while cycling Win+1/2/3, Ctrl+Win held through a virtual-desktop switch. The timing classifier keys off the modifier *release*, so a long hold (longer than the threshold) would otherwise fall through to STEAL once the release window lapses.
+
+So at the instant the foreground changes, the WinEvent callback asks the OS — via `GetAsyncKeyState` — whether **Win or Alt** is physically down right now. If so, the event is `USER_OTHER` ("modifier held"): you're mid-gesture, so it's user-driven however long the hold lasts. `GetAsyncKeyState` reflects the *physical* key, so it can't desync from a missed key-up the way our own latches could. Only Win/Alt qualify — Ctrl and Shift are held constantly during normal work and would mask genuine steals (Ctrl+Win+Arrow is still covered, because Win is down). The commit-on-release is covered separately: releasing Win or Alt fires the system-gesture signal, so the window that gains focus as the switcher closes lands inside the `--threshold-other-ms` window.
+
+### STEAL vs MAYBE_STEAL
+
+A focus change that none of the above can explain is split by how recently you touched the machine, using `idle_time_ms` (time since *any* key or mouse activity):
+
+- **`STEAL`** — idle for at least `--steal-idle` (default 5min). The machine was untouched and focus moved anyway: high-confidence involuntary. **This is the bucket to act on** — it's the cmd.exe-flash signature.
+- **`MAYBE_STEAL`** — you were active within that window. Could be a delayed consequence of something you did, or a real steal that happened while you were working.
+
+Both show at the default `-v 0` and both appear in the exit summary, so the for-sure steals stand out at a glance without hiding the softer ones.
+
 ---
 
 ## Output formats
@@ -282,7 +298,7 @@ Default is `csv,jsonl`. Opt-in to more via `--format csv,jsonl,logfmt,md,log,htm
 | Field | Type | Notes |
 |---|---|---|
 | `timestamp_utc` | ISO 8601 (ms precision) | The OS-recorded time of the event (from `KBDLLHOOKSTRUCT.time` / `MSLLHOOKSTRUCT.time` / `dwmsEventTime`), reconstructed to a full 64-bit timestamp. |
-| `classification` | enum | `STEAL` / `SESSION_LOCK` / `USER_ALT_TAB` / `USER_CLICK` / `USER_OTHER` / `SHELL_TRANSIENT` / `PIPELINE_PRESSURE` |
+| `classification` | enum | `STEAL` / `MAYBE_STEAL` / `SESSION_LOCK` / `USER_ALT_TAB` / `USER_CLICK` / `USER_OTHER` / `SHELL_TRANSIENT` / `PIPELINE_PRESSURE` |
 | `monitored_via` | enum | `EVENT_SYSTEM_FOREGROUND` / `EVENT_OBJECT_SHOW` / `EVENT_OBJECT_FOCUS` / `INTERNAL` (for `PIPELINE_PRESSURE` rows) |
 | `hwnd` | hex string | New foreground / shown / focused window handle. |
 | `window_class` | string | Win32 window class name. |
