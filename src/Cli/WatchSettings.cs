@@ -137,20 +137,18 @@ public sealed class WatchSettings : CommandSettings
         // an ArgumentException during pipeline construction and Program.cs would map it to
         // exit 64 (unhandled exception). README documents bad-args as exit 2, so route through
         // Spectre's Validate() instead - ValidationResult.Error -> exit 2 pre-execution.
-        // Allowed set must stay in sync with ExporterRegistry's switch (csv, jsonl, logfmt, md,
-        // markdown, log, txt, plain, html, plus empty which the registry silently ignores).
+        // The allowed set lives on ExporterRegistry.AcceptedTokens so the validator and the
+        // registry can't drift.
         if (Format is { Length: > 0 })
         {
             foreach (var raw in Format.Split(',', StringSplitOptions.None))
             {
                 var token = raw.Trim().ToLowerInvariant();
-                if (token is "" or "csv" or "jsonl" or "logfmt" or "md" or "markdown"
-                    or "log" or "txt" or "plain" or "html")
+                if (!Export.ExporterRegistry.AcceptedTokens.Contains(token))
                 {
-                    continue;
+                    return Spectre.Console.ValidationResult.Error(
+                        $"Unknown format '{token}'. Allowed: csv, jsonl, logfmt, md, log, html.");
                 }
-                return Spectre.Console.ValidationResult.Error(
-                    $"Unknown format '{token}'. Allowed: csv, jsonl, logfmt, md, log, html.");
             }
         }
         return base.Validate();

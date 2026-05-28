@@ -11,38 +11,44 @@ internal sealed class ExporterRegistry : IAsyncDisposable
     private readonly List<IEventExporter> _exporters = new();
     private readonly string _baseDir;
 
+    // Token -> factory. All tokens are lowercase (caller normalises). Adding a new file-format
+    // exporter is a one-liner here AND requires nothing else - AcceptedTokens below derives from
+    // this dict, and WatchSettings.Validate consults AcceptedTokens, so the validator and registry
+    // can't disagree on the allowed set.
+    private static readonly IReadOnlyDictionary<string, Func<string, IEventExporter>> s_factories
+        = new Dictionary<string, Func<string, IEventExporter>>(StringComparer.Ordinal)
+        {
+            ["csv"] = baseDir => new CsvExporter(baseDir),
+            ["jsonl"] = baseDir => new JsonlExporter(baseDir),
+            ["logfmt"] = baseDir => new LogfmtExporter(baseDir),
+            ["md"] = baseDir => new MarkdownExporter(baseDir),
+            ["markdown"] = baseDir => new MarkdownExporter(baseDir),
+            ["log"] = baseDir => new PlainTextExporter(baseDir),
+            ["txt"] = baseDir => new PlainTextExporter(baseDir),
+            ["plain"] = baseDir => new PlainTextExporter(baseDir),
+        };
+
+    // Every --format token the CLI will accept. Includes the two specials handled outside the
+    // factory dict: "" (silently dropped) and "html" (resolved at shutdown by HtmlReportWriter,
+    // not registered as a streaming exporter).
+    internal static readonly IReadOnlySet<string> AcceptedTokens
+        = new HashSet<string>(s_factories.Keys.Concat(new[] { "", "html" }), StringComparer.Ordinal);
+
     public ExporterRegistry(string baseDir, IEnumerable<string> formats)
     {
         _baseDir = baseDir;
         foreach (var f in formats)
         {
             var name = f.Trim().ToLowerInvariant();
-            switch (name)
+            if (name is "" or "html") { continue; } // special-cased; see AcceptedTokens above
+            if (!s_factories.TryGetValue(name, out var factory))
             {
-                case "csv":
-                    _exporters.Add(new CsvExporter(baseDir)); break;
-                case "jsonl":
-                    _exporters.Add(new JsonlExporter(baseDir)); break;
-                case "logfmt":
-                    _exporters.Add(new LogfmtExporter(baseDir)); break;
-                case "md":
-                case "markdown":
-                    _exporters.Add(new MarkdownExporter(baseDir)); break;
-                case "log":
-                case "txt":
-                case "plain":
-                    _exporters.Add(new PlainTextExporter(baseDir)); break;
-                case "html":
-                    // HTML is shutdown-only - resolved at shutdown by HtmlReportWriter; nothing to register here.
-                    break;
-                case "":
-                    break;
-                default:
-                    // Defense-in-depth: WatchSettings.Validate already rejects unknown formats and
-                    // exits 2 pre-execution. Reaching this throw implies the validator and registry
-                    // disagree, which is a programmer error.
-                    throw new ArgumentException($"Unknown format '{name}'. Allowed: csv, jsonl, logfmt, md, log, html.");
+                // Defense-in-depth: WatchSettings.Validate already rejects unknown formats and
+                // exits 2 pre-execution. Reaching this throw implies the validator and registry
+                // disagree, which is a programmer error.
+                throw new ArgumentException($"Unknown format '{name}'. Allowed: csv, jsonl, logfmt, md, log, html.");
             }
+            _exporters.Add(factory(baseDir));
         }
     }
 
