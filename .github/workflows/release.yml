@@ -1,0 +1,94 @@
+name: Release
+
+# Push a v*.*.* tag to cut a release. MinVer reads the tag at build time, so the
+# AssemblyVersion / FileVersion / InformationalVersion all match the tag. The
+# workflow runs the tests, AOT-publishes the win-x64 single-file exe, computes
+# a SHA-256, and attaches both to the GitHub Release.
+#
+# Tag the commit you want to release:
+#     git tag v1.0.0
+#     git push origin v1.0.0
+#
+# A draft / RC tag (e.g. v1.0.0-rc.1) will produce a prerelease via
+# softprops/action-gh-release's auto-detection of '-' in the tag name.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write   # required to create the GitHub Release
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, test, publish, release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout (full history for MinVer)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Ensure vswhere on PATH (for Native AOT link.exe lookup)
+        shell: pwsh
+        run: |
+          $vsInstaller = "C:\Program Files (x86)\Microsoft Visual Studio\Installer"
+          if (Test-Path $vsInstaller) {
+            Add-Content -Path $env:GITHUB_PATH -Value $vsInstaller
+            Write-Output "Added $vsInstaller to PATH"
+          } else {
+            Write-Output "VS Installer not at expected path; relying on runner defaults"
+          }
+
+      - name: Print resolved version (MinVer)
+        shell: pwsh
+        run: |
+          dotnet msbuild SpawnSpotter.csproj -nologo `
+            -t:MinVer `
+            -p:Configuration=Release `
+            -getProperty:MinVerVersion,Version,AssemblyVersion,FileVersion,InformationalVersion
+
+      - name: Restore
+        run: dotnet restore SpawnSpotter.slnx
+
+      - name: Test
+        run: dotnet test SpawnSpotter.slnx --no-restore --configuration Release
+
+      - name: Publish (Native AOT, win-x64, self-contained)
+        run: dotnet publish SpawnSpotter.csproj -c Release -r win-x64 --no-restore
+
+      - name: Stage release artifacts
+        shell: pwsh
+        run: |
+          $publishDir = "bin/Release/net10.0/win-x64/publish"
+          $exe = Join-Path $publishDir "SpawnSpotter.exe"
+          if (-not (Test-Path $exe)) {
+            throw "Publish output missing: $exe"
+          }
+          $stage = "release-artifacts"
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item $exe (Join-Path $stage "SpawnSpotter.exe")
+          $hash = (Get-FileHash (Join-Path $stage "SpawnSpotter.exe") -Algorithm SHA256).Hash.ToLower()
+          "$hash  SpawnSpotter.exe" | Out-File -FilePath (Join-Path $stage "SpawnSpotter.exe.sha256") -Encoding ascii
+          Get-ChildItem $stage | Format-Table -AutoSize
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-artifacts/SpawnSpotter.exe
+            release-artifacts/SpawnSpotter.exe.sha256
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          draft: false

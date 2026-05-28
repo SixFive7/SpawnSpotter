@@ -10,6 +10,23 @@ Single 11 MB self-contained .exe (Native AOT). No kernel driver, no service inst
 
 ---
 
+## Install
+
+Download `SpawnSpotter.exe` from the [latest GitHub Release](https://github.com/SixFive7/SpawnSpotter/releases/latest) (each release also publishes a matching `SpawnSpotter.exe.sha256` you can verify against). Drop it anywhere on disk; there is no installer and no service. Right-click → **Run as administrator**, or launch from an elevated PowerShell / Terminal.
+
+```powershell
+# Verify the download (optional)
+(Get-FileHash .\SpawnSpotter.exe -Algorithm SHA256).Hash.ToLower()
+# Compare to the value in SpawnSpotter.exe.sha256.
+
+# Confirm what you've got
+.\SpawnSpotter.exe version
+```
+
+To build from source instead, see [Building from source](#building-from-source).
+
+---
+
 ## Quick start
 
 ```powershell
@@ -38,7 +55,7 @@ For a bounded run:
 | Command | Purpose |
 |---|---|
 | `spawnspotter watch [options]` | Start logging. The only "doing" command. |
-| `spawnspotter version` | Print version + git commit and exit. |
+| `spawnspotter version` | Print version + git short SHA, check GitHub Releases for a newer version, and exit. |
 
 ### `watch` flags
 
@@ -356,6 +373,37 @@ The AOT publish step requires Visual Studio Build Tools on PATH for `vswhere.exe
 
 ```powershell
 pwsh -File scripts/smoke-test.ps1            # needs elevation (NT Kernel Logger + requireAdministrator)
+```
+
+---
+
+## Versioning, releases, and update checks
+
+SpawnSpotter follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`). The user-visible CLI surface is the contract:
+
+- **MAJOR** - breaking change to a flag, exit code, log schema, or default behavior.
+- **MINOR** - new feature, new flag, or new event classification.
+- **PATCH** - bug fix or doc-only change with no observable surface change.
+
+The version is driven by git tags via [MinVer](https://github.com/adamralph/minver). The tag is the source of truth - there is no hand-edited `<Version>` in the csproj. Tag-builds get the tag's version (e.g. `1.2.3`); commits between tags get an auto-incremented pre-release suffix (e.g. `1.2.4-alpha.0.7+abc1234`). The git short SHA always rides in `InformationalVersion`.
+
+To cut a release:
+
+```powershell
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+The [release workflow](.github/workflows/release.yml) (`Release` on GitHub Actions) runs on every `v*.*.*` tag push: it runs the test suite, AOT-publishes the win-x64 single-file `SpawnSpotter.exe`, writes a `SpawnSpotter.exe.sha256`, and attaches both to an automatically-generated GitHub Release. Tagging a pre-release identifier (e.g. `v1.0.0-rc.1`) publishes a GitHub pre-release; the `/releases/latest` endpoint - which the in-binary update check queries - skips those.
+
+### Update check
+
+`spawnspotter version` always reaches out to the [GitHub Releases API](https://api.github.com/repos/SixFive7/SpawnSpotter/releases/latest) and prints `Update available: vX.Y.Z` if a newer release exists. `spawnspotter watch` consults a 24 h disk cache at `%LOCALAPPDATA%\SpawnSpotter\update-check.json`; if the cache says an update is available it prints one line to stderr at startup, otherwise it stays silent. A stale cache triggers a background refresh that lands in time for the next run.
+
+To suppress all update-check network traffic, set:
+
+```powershell
+$env:SPAWNSPOTTER_NO_UPDATE_CHECK = "1"
 ```
 
 ---

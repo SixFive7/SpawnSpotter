@@ -15,6 +15,10 @@ internal static class Program
         Justification = "Verified at AOT publish time; commands use strongly-typed CommandSettings only.")]
     public static int Main(string[] args)
     {
+        // Stamp the OS console title with our version. Best-effort - silently ignore
+        // any failure (output redirected, headless host, PlatformNotSupported, etc.).
+        TrySetConsoleTitle();
+
         // Defensive admin check. app.manifest requests requireAdministrator so the OS-level
         // UAC prompt already happened before Main runs; if we land here without elevation it
         // means someone stripped the manifest or used a development build path that bypasses
@@ -32,10 +36,11 @@ internal static class Program
         app.Configure(config =>
         {
             config.SetApplicationName("spawnspotter");
+            config.SetApplicationVersion(VersionInfo.DisplayVersion);
             config.AddCommand<WatchCommand>("watch")
                   .WithDescription("Start logging involuntary focus changes.");
             config.AddCommand<VersionCommand>("version")
-                  .WithDescription("Print version and exit.");
+                  .WithDescription("Print version (and check for updates) and exit.");
 
             // Exit codes:
             //   0        - graceful shutdown
@@ -54,12 +59,29 @@ internal static class Program
             });
         });
 
-        // Bare invocation (no args) prints help and exits 0.
+        // Bare invocation (no args) prints the banner and then routes to --help.
         if (args.Length == 0)
         {
+            Console.WriteLine(VersionInfo.BannerLine());
+            Console.WriteLine();
             return app.Run(["--help"]);
         }
 
         return app.Run(args);
+    }
+
+    private static void TrySetConsoleTitle()
+    {
+        try
+        {
+            if (!Console.IsOutputRedirected)
+            {
+                Console.Title = $"SpawnSpotter v{VersionInfo.DisplayVersion}";
+            }
+        }
+        catch
+        {
+            // Console title is cosmetic; never let it block startup.
+        }
     }
 }

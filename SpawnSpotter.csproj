@@ -26,8 +26,27 @@
     -->
     <NoWarn>$(NoWarn);IL2104;IL3050;IL3053;IL3000</NoWarn>
 
+    <!-- Assembly / Win32 file-properties metadata. Most fields are surfaced by
+         Windows Explorer (Properties -> Details). Version-related fields are
+         stamped by MinVer below from the nearest git tag. -->
     <AssemblyTitle>SpawnSpotter</AssemblyTitle>
-    <Description>Win32 focus-change logger for Windows 11</Description>
+    <Product>SpawnSpotter</Product>
+    <Company>SixFive7</Company>
+    <Authors>SixFive7</Authors>
+    <Copyright>Copyright (c) SixFive7 contributors</Copyright>
+    <Description>Logs the process chain behind every focus change you didn't ask for. Single-binary Native-AOT Windows 11 tool.</Description>
+    <RepositoryUrl>https://github.com/SixFive7/SpawnSpotter</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/SixFive7/SpawnSpotter</PackageProjectUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+
+    <!-- MinVer reads the version from the nearest git tag (prefix 'v').
+         - On a tag (e.g. v1.2.3)              -> 1.2.3
+         - N commits past a tag                 -> 1.2.4-alpha.0.N
+         - No tags / shallow clone              -> 0.0.0-alpha.0.<height>
+         The SDK appends '+<git-sha>' to InformationalVersion automatically
+         (IncludeSourceRevisionInInformationalVersion is on by default). -->
+    <MinVerTagPrefix>v</MinVerTagPrefix>
 
     <!-- Embed the UAC / DPI / OS-compat manifest into the output exe. The manifest
          requests requireAdministrator - ETW kernel-process tracing needs it. -->
@@ -63,6 +82,12 @@
   <ItemGroup>
     <PackageReference Include="Spectre.Console" />
     <PackageReference Include="Spectre.Console.Cli" />
+    <!-- Build-time only; no runtime dependency, AOT-safe. -->
+    <PackageReference Include="MinVer" PrivateAssets="all" />
+    <!-- Populates SourceRevisionId from git so the SDK can append '+<sha>' to
+         InformationalVersion. Also stamps PDB source paths to GitHub URLs.
+         Build-time only, no runtime dependency. -->
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="all" />
   </ItemGroup>
 
 </Project>
