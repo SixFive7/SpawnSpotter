@@ -12,13 +12,9 @@ Single 11 MB self-contained .exe (Native AOT). No kernel driver, no service inst
 
 ## Install
 
-Download `SpawnSpotter.exe` from the [latest GitHub Release](https://github.com/SixFive7/SpawnSpotter/releases/latest) (each release also publishes a matching `SpawnSpotter.exe.sha256` you can verify against). Drop it anywhere on disk; there is no installer and no service. Right-click → **Run as administrator**, or launch from an elevated PowerShell / Terminal.
+Download `SpawnSpotter.exe` from the [latest GitHub Release](https://github.com/SixFive7/SpawnSpotter/releases/latest). Drop it anywhere on disk; there is no installer and no service. Right-click → **Run as administrator**, or launch from an elevated PowerShell / Terminal.
 
 ```powershell
-# Verify the download (optional)
-(Get-FileHash .\SpawnSpotter.exe -Algorithm SHA256).Hash.ToLower()
-# Compare to the value in SpawnSpotter.exe.sha256.
-
 # Confirm what you've got
 .\SpawnSpotter.exe version
 ```
