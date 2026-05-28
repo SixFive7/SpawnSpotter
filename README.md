@@ -391,9 +391,11 @@ SpawnSpotter/
 │   ├── Process/                     ProcessReader (NT API + RPM PEB walker), ProcessSnapshot
 │   └── Ui/                          ConsoleUx (verbosity logic), StatusLine
 └── tests/
-    └── SpawnSpotter.Tests/          TUnit; 177 tests covering classifier truth-table (incl.
+    └── SpawnSpotter.Tests/          TUnit; 282 tests covering classifier truth-table (incl.
                                       SHELL_TRANSIENT), key categorizer, glob matcher, duration
-                                      converter, exporter formats, HTML report, ETW payload
-                                      decoder, ProcessSpawnRegistry TTL semantics
+                                      converter, exporter formats + CSV-injection mitigation,
+                                      HTML report, ETW payload decoder, ProcessSpawnRegistry TTL
+                                      semantics, DedupeGate, EventBus timestamp reconstruction,
+                                      FileWriterBase UTC day rollover
 ```
 
