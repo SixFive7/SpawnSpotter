@@ -28,7 +28,7 @@ public class KeyEventDecisionTests
     public async Task WinKeydown_IsSystemGesture()
     {
         // Win key pressed (latch already set by the hook before Decide runs). Win is a
-        // System-category key, so its keydown is a gesture — the start of Win+something or
+        // System-category key, so its keydown is a gesture - the start of Win+something or
         // a Win-alone tap, both of which precede a focus change.
         var k = KeyEventDecision.Decide(vkCode: Vk.LWIN, isUp: false,
             altDown: false, ctrlDown: false, shiftDown: false, winDown: true);
@@ -38,7 +38,7 @@ public class KeyEventDecisionTests
     [Test]
     public async Task ModifierKeydown_Alone_IsInputKeyDown()
     {
-        // Pressing Shift/Ctrl/Alt by themselves is not a gesture — just the start of a chord.
+        // Pressing Shift/Ctrl/Alt by themselves is not a gesture - just the start of a chord.
         await Assert.That(KeyEventDecision.Decide(Vk.SHIFT, isUp: false, false, false, true, false))
             .IsEqualTo(HookEventKind.InputKeyDown);
         await Assert.That(KeyEventDecision.Decide(Vk.CONTROL, isUp: false, false, true, false, false))
@@ -48,7 +48,7 @@ public class KeyEventDecisionTests
     }
 
     // -------------------------------------------------------------------------
-    // Key-DOWN gestures — the press-triggered fix. The OS acts on these key-downs
+    // Key-DOWN gestures - the press-triggered fix. The OS acts on these key-downs
     // and the focus change lands before key-up, so the signal must fire here.
     // -------------------------------------------------------------------------
 
@@ -74,7 +74,7 @@ public class KeyEventDecisionTests
     [Test]
     public async Task WinPlusEKeydown_IsSystemGesture()
     {
-        // Win+E on E key-DOWN — launch fires here, dopus/Explorer window appears after.
+        // Win+E on E key-DOWN - launch fires here, dopus/Explorer window appears after.
         var k = KeyEventDecision.Decide(vkCode: 0x45 /*E*/, isUp: false,
             altDown: false, ctrlDown: false, shiftDown: false, winDown: true);
         await Assert.That(k).IsEqualTo(HookEventKind.InputSystemKeyReleased);
@@ -83,7 +83,7 @@ public class KeyEventDecisionTests
     [Test]
     public async Task WinPlusDigitKeydown_IsSystemGesture()
     {
-        // Win+1 switching to a RUNNING app is instant — the switch happens on key-down,
+        // Win+1 switching to a RUNNING app is instant - the switch happens on key-down,
         // well before key-up. This is the case the key-up-only fix would have missed.
         var k = KeyEventDecision.Decide(vkCode: 0x31 /*1*/, isUp: false,
             altDown: false, ctrlDown: false, shiftDown: false, winDown: true);
@@ -93,7 +93,7 @@ public class KeyEventDecisionTests
     [Test]
     public async Task CtrlShiftTKeydown_IsInputKeyDown_NotWidened()
     {
-        // Ctrl+Shift+T (reopen tab) is a hotkey but Win isn't involved and T isn't System —
+        // Ctrl+Shift+T (reopen tab) is a hotkey but Win isn't involved and T isn't System -
         // deliberately NOT treated as a gesture (we only widened for Win + System keys).
         var k = KeyEventDecision.Decide(vkCode: 0x54 /*T*/, isUp: false,
             altDown: false, ctrlDown: true, shiftDown: true, winDown: false);
@@ -121,14 +121,14 @@ public class KeyEventDecisionTests
     }
 
     // -------------------------------------------------------------------------
-    // Win-combo gestures — the new behavior. Each fires InputSystemKeyReleased
+    // Win-combo gestures - the new behavior. Each fires InputSystemKeyReleased
     // at the moment the second key is released, while Win is still held.
     // -------------------------------------------------------------------------
 
     [Test]
     public async Task WinPlusE_OnEReleased_IsSystemKeyReleased()
     {
-        // Win+E: open Explorer (or its replacement — dopus on this user's system).
+        // Win+E: open Explorer (or its replacement - dopus on this user's system).
         var k = KeyEventDecision.Decide(vkCode: 0x45 /*E*/, isUp: true,
             altDown: false, ctrlDown: false, shiftDown: false, winDown: true);
         await Assert.That(k).IsEqualTo(HookEventKind.InputSystemKeyReleased);
@@ -218,7 +218,7 @@ public class KeyEventDecisionTests
     public async Task ShiftOrCtrlReleased_WhileWinHeld_IsDropped(uint vk)
     {
         // Shift/Ctrl are not gesture-completion modifiers (held constantly during normal work),
-        // so releasing them — even with Win held — carries no classification signal.
+        // so releasing them - even with Win held - carries no classification signal.
         var k = KeyEventDecision.Decide(vkCode: vk, isUp: true,
             altDown: false, ctrlDown: false, shiftDown: false, winDown: true);
         await Assert.That(k).IsNull();
@@ -230,7 +230,7 @@ public class KeyEventDecisionTests
     [Arguments(Vk.RMENU)]
     public async Task AltReleased_IsSystemGesture(uint vk)
     {
-        // Releasing Alt completes a gesture — the Alt+Tab switcher commits on Alt-up. This
+        // Releasing Alt completes a gesture - the Alt+Tab switcher commits on Alt-up. This
         // must fire even though Alt is Modifier-category and may have been held far longer than
         // any threshold. (UpdateModifierState clears altDown before Decide runs, hence false.)
         var k = KeyEventDecision.Decide(vkCode: vk, isUp: true,
@@ -256,7 +256,7 @@ public class KeyEventDecisionTests
     [Test]
     public async Task EscReleased_NoModifiers_IsSystemKeyReleased()
     {
-        // Esc cancels a dialog and may shift focus — still a System gesture.
+        // Esc cancels a dialog and may shift focus - still a System gesture.
         var k = KeyEventDecision.Decide(vkCode: Vk.ESCAPE, isUp: true,
             altDown: false, ctrlDown: false, shiftDown: false, winDown: false);
         await Assert.That(k).IsEqualTo(HookEventKind.InputSystemKeyReleased);
@@ -278,7 +278,7 @@ public class KeyEventDecisionTests
     [Test]
     public async Task TextLikeReleased_NoModifiers_IsDropped()
     {
-        // Typing 'A' alone is just typing — classifier already saw the keydown event.
+        // Typing 'A' alone is just typing - classifier already saw the keydown event.
         var k = KeyEventDecision.Decide(vkCode: 0x41 /*A*/, isUp: true,
             altDown: false, ctrlDown: false, shiftDown: false, winDown: false);
         await Assert.That(k).IsNull();
@@ -296,7 +296,7 @@ public class KeyEventDecisionTests
     public async Task TextLikeReleased_CtrlShiftNoWin_IsDropped()
     {
         // Ctrl+Shift+T (reopen tab) is a hotkey but Win isn't involved. The classifier
-        // doesn't need to know — the resulting focus change either follows a click
+        // doesn't need to know - the resulting focus change either follows a click
         // (USER_CLICK) or stays inside the same app. We deliberately do NOT widen the
         // hotkey detection to all modifiers; only Win triggers the new branch.
         var k = KeyEventDecision.Decide(vkCode: 0x54 /*T*/, isUp: true,

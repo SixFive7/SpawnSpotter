@@ -1,4 +1,4 @@
-# SpawnSpotter — TODO
+# SpawnSpotter - TODO
 
 Open repo-level tasks. Cross-cutting items only; per-feature work belongs in code
 comments or commit messages.
@@ -13,7 +13,7 @@ commit). `VersionCommand` (`src/Cli/VersionCommand.cs`) reads
 `InformationalVersion`, so today `spawnspotter version` prints `SpawnSpotter 1.0.0+<sha>`.
 
 The README claims `version` prints "version + git commit and exit." That's literally
-true — there's a version, and there's a commit — but the version number is permanently
+true - there's a version, and there's a commit - but the version number is permanently
 `1.0.0` and will never change as the project evolves. That's the gap.
 
 **Options (not yet picked):**
@@ -30,4 +30,4 @@ true — there's a version, and there's a commit — but the version number is p
    suffix for identification. Cheapest. Defensible if releases are de facto
    "whatever's on `main`".
 
-Decision deferred — pick one when the release cadence is clearer.
+Decision deferred - pick one when the release cadence is clearer.

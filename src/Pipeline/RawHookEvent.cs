@@ -16,18 +16,18 @@ namespace SpawnSpotter.Pipeline;
 /// </summary>
 internal enum HookEventKind : byte
 {
-    // Window events — carry an HWND and an event type; need enrichment downstream.
+    // Window events - carry an HWND and an event type; need enrichment downstream.
     Foreground = 1,
     ObjectShow = 2,
     ObjectFocus = 3,
 
-    // Input events — carry only a timestamp; update last-X tick in the classifier.
-    InputKeyDown = 4,               // any keydown — updates LastKeyTickMs
-    InputAltTabReleased = 5,        // Tab released while Alt held — updates LastAltTabReleaseTickMs
-    InputSystemKeyReleased = 6,     // System-category key released — updates LastSystemKeyReleaseTickMs
-    InputMouseButtonDown = 7,       // any mouse button pressed — updates LastMouseDownTickMs
+    // Input events - carry only a timestamp; update last-X tick in the classifier.
+    InputKeyDown = 4,               // any keydown - updates LastKeyTickMs
+    InputAltTabReleased = 5,        // Tab released while Alt held - updates LastAltTabReleaseTickMs
+    InputSystemKeyReleased = 6,     // System-category key released - updates LastSystemKeyReleaseTickMs
+    InputMouseButtonDown = 7,       // any mouse button pressed - updates LastMouseDownTickMs
 
-    // System / meta events — emitted by the enricher stage in Phase 3.
+    // System / meta events - emitted by the enricher stage in Phase 3.
     PipelinePressureEnter = 8,      // BufferBlock crossed 90% full
     PipelinePressureClear = 9,      // BufferBlock dropped back below 70% full
 }

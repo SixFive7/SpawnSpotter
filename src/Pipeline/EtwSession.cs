@@ -12,12 +12,12 @@ namespace SpawnSpotter.Pipeline;
 /// <para>
 /// Lifecycle (hard fail on session errors): any failure in <see cref="Start"/> throws
 /// <see cref="EtwSessionException"/>. The Runner catches it, prints a clear message, and
-/// exits non-zero. There is no automatic recovery — the user re-runs once the conflicting
+/// exits non-zero. There is no automatic recovery - the user re-runs once the conflicting
 /// session is gone.
 /// </para>
 ///
 /// <para>
-/// Session name: <c>NT Kernel Logger</c>. This is a single, system-wide singleton session —
+/// Session name: <c>NT Kernel Logger</c>. This is a single, system-wide singleton session -
 /// only one consumer (any process) may own it at a time. A conflicting owner makes
 /// <c>StartTraceW</c> fail with <see cref="Etw.ERROR_ALREADY_EXISTS"/>, which we hard-fail with
 /// cleanup guidance (<c>logman stop "NT Kernel Logger" -ets</c>). <see cref="TryStopByName"/>
@@ -59,8 +59,8 @@ internal sealed unsafe class EtwSession : IDisposable
     /// Creates the NT Kernel Logger session with classic Process events enabled. The kernel
     /// logger is configured entirely through <c>StartTraceW</c> (its <see cref="Etw.WNODE_HEADER.Guid"/>
     /// selects the singleton session and <see cref="Etw.EVENT_TRACE_PROPERTIES.EnableFlags"/> selects
-    /// the event groups) — there is no separate provider-enablement step. Throws
-    /// <see cref="EtwSessionException"/> on any failure — caller is expected to catch
+    /// the event groups) - there is no separate provider-enablement step. Throws
+    /// <see cref="EtwSessionException"/> on any failure - caller is expected to catch
     /// and fail the run cleanly.
     /// </summary>
     public void Start()
@@ -68,7 +68,7 @@ internal sealed unsafe class EtwSession : IDisposable
         if (_started) { throw new InvalidOperationException("EtwSession already started."); }
         if (_disposed) { throw new ObjectDisposedException(nameof(EtwSession)); }
 
-        // 1) Best-effort cleanup of any leftover session with the same name (rare — only if
+        // 1) Best-effort cleanup of any leftover session with the same name (rare - only if
         // a prior process with the same pid crashed without unhooking). We swallow errors:
         // if there is no such session, StopByName returns ERROR_WMI_INSTANCE_NOT_FOUND
         // which is the expected case on first run.
@@ -85,7 +85,7 @@ internal sealed unsafe class EtwSession : IDisposable
         props->Wnode.ClientContext = Etw.WNODE_CLIENT_CONTEXT_QPC;
         props->Wnode.Flags = Etw.WNODE_FLAG_TRACED_GUID;
         // The NT Kernel Logger is selected by writing SystemTraceControlGuid into the WNODE
-        // GUID, and its event groups are chosen via EnableFlags — both BEFORE StartTraceW.
+        // GUID, and its event groups are chosen via EnableFlags - both BEFORE StartTraceW.
         props->Wnode.Guid = Etw.SystemTraceControlGuid;
         props->EnableFlags = Etw.EVENT_TRACE_FLAG_PROCESS;
         props->BufferSize = BufferSizeKb;
@@ -97,7 +97,7 @@ internal sealed unsafe class EtwSession : IDisposable
         props->LogFileMode = Etw.EVENT_TRACE_REAL_TIME_MODE;
         props->LogFileNameOffset = 0;
         props->LoggerNameOffset = (uint)Etw.SizeOfEventTraceProperties;
-        // Kernel copies SessionName back into [LoggerNameOffset..] on success — we don't
+        // Kernel copies SessionName back into [LoggerNameOffset..] on success - we don't
         // need to pre-fill it (StartTraceW takes the InstanceName separately as a string).
 
         // 3) Create the session. For the kernel logger this fully configures it (Process events
@@ -115,10 +115,10 @@ internal sealed unsafe class EtwSession : IDisposable
 
     /// <summary>
     /// Idempotent. Stops the session cleanly. Safe to call from a Ctrl+C handler, an outer
-    /// <c>finally</c> block, or an <see cref="AppDomain.ProcessExit"/> hook — the
+    /// <c>finally</c> block, or an <see cref="AppDomain.ProcessExit"/> hook - the
     /// <c>_started</c> guard makes the second invocation a cheap no-op, so wiring both a
     /// finally-driven teardown AND a ProcessExit safety net is fine. Errors from
-    /// <c>ControlTraceW</c> are logged to stderr and swallowed — teardown is best-effort
+    /// <c>ControlTraceW</c> are logged to stderr and swallowed - teardown is best-effort
     /// because the priority is releasing the NT Kernel Logger singleton (anything we can do
     /// to avoid leaking it across runs).
     /// </summary>
@@ -154,7 +154,7 @@ internal sealed unsafe class EtwSession : IDisposable
         if (code != Etw.ERROR_SUCCESS && code != Etw.ERROR_WMI_INSTANCE_NOT_FOUND)
         {
             Console.Error.WriteLine(
-                $"[ETW] ControlTraceW(STOP) returned 0x{code:X} ({FormatEtwError(code)}) for session '{SessionName}'. Session may be leaked — clean up with: logman stop \"{SessionName}\" -ets");
+                $"[ETW] ControlTraceW(STOP) returned 0x{code:X} ({FormatEtwError(code)}) for session '{SessionName}'. Session may be leaked - clean up with: logman stop \"{SessionName}\" -ets");
         }
     }
 
@@ -176,7 +176,7 @@ internal sealed unsafe class EtwSession : IDisposable
             props->LoggerNameOffset = (uint)Etw.SizeOfEventTraceProperties;
             // TraceHandle=0 with a non-null InstanceName means "look up by name".
             _ = Etw.ControlTraceW(0, sessionName, props, Etw.EVENT_TRACE_CONTROL_STOP);
-            // Ignore the return value — ERROR_WMI_INSTANCE_NOT_FOUND is the normal "no leftover" path.
+            // Ignore the return value - ERROR_WMI_INSTANCE_NOT_FOUND is the normal "no leftover" path.
         }
         finally
         {
@@ -196,8 +196,8 @@ internal sealed unsafe class EtwSession : IDisposable
 
     private static string FormatEtwError(int code) => code switch
     {
-        Etw.ERROR_ACCESS_DENIED => "ACCESS_DENIED — the NT Kernel Logger needs administrator",
-        Etw.ERROR_ALREADY_EXISTS => "ALREADY_EXISTS — the NT Kernel Logger is already owned by another consumer; stop it with: logman stop \"NT Kernel Logger\" -ets",
+        Etw.ERROR_ACCESS_DENIED => "ACCESS_DENIED - the NT Kernel Logger needs administrator",
+        Etw.ERROR_ALREADY_EXISTS => "ALREADY_EXISTS - the NT Kernel Logger is already owned by another consumer; stop it with: logman stop \"NT Kernel Logger\" -ets",
         Etw.ERROR_INVALID_PARAMETER => "INVALID_PARAMETER",
         Etw.ERROR_BAD_LENGTH => "BAD_LENGTH",
         Etw.ERROR_WMI_INSTANCE_NOT_FOUND => "WMI_INSTANCE_NOT_FOUND",

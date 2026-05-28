@@ -8,7 +8,7 @@ namespace SpawnSpotter.Hooks;
 /// System-wide <c>WH_MOUSE_LL</c> hook. Filters <c>WM_MOUSEMOVE</c> at the callback (high
 /// volume; pure noise for our use case). Button-down events post a single
 /// <see cref="HookEventKind.InputMouseButtonDown"/> into the pipeline. Coordinates are
-/// available via <c>*(MSLLHOOKSTRUCT*)lParam</c> but are NEVER logged anywhere — click
+/// available via <c>*(MSLLHOOKSTRUCT*)lParam</c> but are NEVER logged anywhere - click
 /// coordinates do NOT go to the output schema.
 /// </summary>
 internal static unsafe class MouseHook

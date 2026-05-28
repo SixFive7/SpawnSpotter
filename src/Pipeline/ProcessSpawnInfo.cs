@@ -2,7 +2,7 @@ namespace SpawnSpotter.Pipeline;
 
 /// <summary>
 /// One ETW-captured process record stored in <see cref="ProcessSpawnRegistry"/>. Source of
-/// truth when the user-mode chain walker hits a dead PID — we still know the parent, the
+/// truth when the user-mode chain walker hits a dead PID - we still know the parent, the
 /// image name, and the command line, so the chain doesn't truncate at <c>&lt;exited&gt;</c>.
 ///
 /// <para>

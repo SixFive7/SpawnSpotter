@@ -40,7 +40,7 @@ public sealed class Runner(WatchSettings settings)
         await using var exporters = new ExporterRegistry(logDir, formats);
 
         // Capture every emitted record in memory for the HTML report (cheap; expected volume small).
-        // No lock needed — the accumulator ActionBlock below runs single-threaded (DOP=1) and is
+        // No lock needed - the accumulator ActionBlock below runs single-threaded (DOP=1) and is
         // joined before the HTML write reads from this list at shutdown.
         var inMemoryAll = new List<EventRecord>(1024);
 
@@ -60,14 +60,14 @@ public sealed class Runner(WatchSettings settings)
         // ---------------- ETW spawner-attribution session + consumer (hard-fail on any error) ----------------
         // The session runs the NT Kernel Logger (classic Process events, which carry the
         // command line at creation) and populates a ProcessSpawnRegistry. The enricher consults
-        // the registry when the user-mode chain walker hits a dead PID — letting us see past the
+        // the registry when the user-mode chain walker hits a dead PID - letting us see past the
         // <exited> boundary that frustrates short-lived flashes (WindowsTerminal.exe -Embedding et al.).
         //
         // Lifecycle protection: once etwSession.Start() succeeds, the system-wide singleton
         // "NT Kernel Logger" is OURS until we Stop() it. Leaking it blocks PerfView / WPR / any
         // other ETW consumer from owning the session, requiring `logman stop "NT Kernel Logger"
-        // -ets` (elevated) to recover. So from this point on, every code path — graceful exit,
-        // exception, console-close (X), Task Manager "End task", or SIGTERM-equivalent — must
+        // -ets` (elevated) to recover. So from this point on, every code path - graceful exit,
+        // exception, console-close (X), Task Manager "End task", or SIGTERM-equivalent - must
         // run the teardown. The outer try/finally below covers graceful + exception, and the
         // AppDomain.ProcessExit handler covers console-close / SIGTERM.
         try
@@ -90,7 +90,7 @@ public sealed class Runner(WatchSettings settings)
         // ---------------- Resources declared OUTSIDE the try ----------------
         // Pre-declared so the outer finally and the ProcessExit handler can address them
         // without scope problems. Each may still be null when teardown runs (e.g. if an
-        // exception escapes between ETW startup and host.Start()) — the cleanup code below
+        // exception escapes between ETW startup and host.Start()) - the cleanup code below
         // null-checks each one.
         EnrichmentPipeline? pipeline = null;
         HookHostThread? host = null;
@@ -100,16 +100,16 @@ public sealed class Runner(WatchSettings settings)
 
         // ---------------- AppDomain.ProcessExit safety net ----------------
         // ProcessExit fires for console-close (X button), `taskkill /pid` without /f, the
-        // unhandled-exception escape path, and SIGTERM-equivalent shutdowns — all of which
+        // unhandled-exception escape path, and SIGTERM-equivalent shutdowns - all of which
         // bypass Console.CancelKeyPress. Without this handler the NT Kernel Logger leaks.
         //
         // The OS gives us ~2 s in this handler before terminating us, so we do the bare
         // minimum: stop the hook host (just in case), stop the ETW consumer thread, stop the
         // singleton ETW session. We deliberately skip pipeline drain / exporter flush / HTML
-        // report — the process is dying anyway, and the file exporters use buffered writes
+        // report - the process is dying anyway, and the file exporters use buffered writes
         // that the FlushFileBuffers in the FileStream dispose path mostly handles on exit.
         //
-        // The handler may run alongside or after the outer finally below. That's fine — every
+        // The handler may run alongside or after the outer finally below. That's fine - every
         // Stop()/Dispose() it touches is guarded by an internal `_started` / `_running` /
         // `_disposed` flag, so the second invocation is a no-op.
         EventHandler processExitHandler = (_, _) =>
@@ -185,7 +185,7 @@ public sealed class Runner(WatchSettings settings)
                     shutdownCts.Cancel();
                 }
             }, consumerBlockOpts);
-            pipeline.RecordSource.LinkTo(shutdownWatcher, linkOpts);  // no verbosity filter — needs all events
+            pipeline.RecordSource.LinkTo(shutdownWatcher, linkOpts);  // no verbosity filter - needs all events
             consumers.Add(shutdownWatcher);
 
             // ---------------- Start single STA producer thread for all hooks ----------------
@@ -264,7 +264,7 @@ public sealed class Runner(WatchSettings settings)
 
             // ---------------- Wait for shutdown ----------------
             // OperationCanceledException is the normal shutdown signal (--duration expired,
-            // --max-steals hit, or Ctrl+C cancelled shutdownCts) and must NOT propagate — we
+            // --max-steals hit, or Ctrl+C cancelled shutdownCts) and must NOT propagate - we
             // want a clean exit code 0 on this path. The finally block below runs unconditionally.
             try
             {
@@ -274,14 +274,14 @@ public sealed class Runner(WatchSettings settings)
 
             // ---------------- Graceful shutdown ----------------
             // Order matters; see the comments on each step. The finally block also runs this
-            // teardown — every component below is idempotent via its internal `_started` /
+            // teardown - every component below is idempotent via its internal `_started` /
             // `_running` / `_disposed` flag, so the second invocation is a cheap no-op. The
             // null-conditional operators below are belt-and-braces: on this happy path the
             // variables are non-null (we got here from successful Start() / construction), but
             // the compiler's null-flow analysis doesn't track that, and `?.` is free at runtime.
             // 1) Stop the producer thread. Posts WM_QUIT, the STA thread finishes any in-flight
             //    callback, exits the message loop, invokes onTeardown (uninstall all hooks).
-            //    Join blocks until the STA thread fully terminates — guaranteeing no hook can fire
+            //    Join blocks until the STA thread fully terminates - guaranteeing no hook can fire
             //    after this returns.
             try { host?.Stop(); } catch { }
             // 2) Drain the pipeline: complete input, wait for the sink to finish all in-flight
@@ -297,14 +297,14 @@ public sealed class Runner(WatchSettings settings)
             if (consumers is not null)
             {
                 try { await Task.WhenAll(consumers.Select(c => c.Completion)).ConfigureAwait(false); }
-                catch { /* swallow — individual consumer faults already logged inside their handlers */ }
+                catch { /* swallow - individual consumer faults already logged inside their handlers */ }
             }
             // 4) Stop ETW: consumer first (so ProcessTrace returns) then the session itself.
-            //    Order matters — stopping the session with a live consumer leaves the consumer
+            //    Order matters - stopping the session with a live consumer leaves the consumer
             //    thread blocked on a session that no longer delivers events. The null-conditional
             //    operator is technically redundant on this happy path (the catch block above
             //    returns 1 if ETW startup failed, so all three are non-null here) but the
-            //    compiler's flow analysis doesn't track that — use ?. to keep nullable-warnings clean.
+            //    compiler's flow analysis doesn't track that - use ?. to keep nullable-warnings clean.
             try { etwConsumer?.Stop(); } catch { }
             try { etwSession?.Stop(); } catch { }
             spawnRegistry?.Dispose();
@@ -346,7 +346,7 @@ public sealed class Runner(WatchSettings settings)
             // happy-path order above; the internal `_started` / `_running` / `_disposed` guards
             // make each Stop()/Dispose() a no-op the second time around.
             //
-            // Wrap every step in its own try/catch so a failure in one doesn't skip the rest —
+            // Wrap every step in its own try/catch so a failure in one doesn't skip the rest -
             // the critical thing to get right is stopping the NT Kernel Logger singleton.
             try { host?.Stop(); } catch { }
             if (pipeline is not null)
@@ -372,9 +372,9 @@ public sealed class Runner(WatchSettings settings)
                     try { await statusTask.ConfigureAwait(false); } catch { }
                 }
             }
-            // Unhook the ProcessExit safety net — we're done. If we leave it wired up and the
+            // Unhook the ProcessExit safety net - we're done. If we leave it wired up and the
             // GC collects this Runner, the captured locals stay rooted needlessly. (The handler
-            // is harmless if it runs after the finally — every Stop() is idempotent — but
+            // is harmless if it runs after the finally - every Stop() is idempotent - but
             // unregistering keeps things tidy.)
             try { AppDomain.CurrentDomain.ProcessExit -= processExitHandler; } catch { }
         }

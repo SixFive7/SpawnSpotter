@@ -2,7 +2,7 @@ namespace SpawnSpotter.Classifier;
 
 /// <summary>
 /// Built-in catalogue of Windows-shell window classes that briefly take focus during user-driven
-/// hover / preview interactions. These are NOT focus theft — they are the visible side-effects of
+/// hover / preview interactions. These are NOT focus theft - they are the visible side-effects of
 /// the user hovering over taskbar thumbnails, opening Start, switching input languages, etc.
 ///
 /// <para>
@@ -13,7 +13,7 @@ namespace SpawnSpotter.Classifier;
 /// <para>
 /// Pattern selection rationale: only classes with no realistic non-transient form. <em>Not</em>
 /// included: LogonUI's <c>LockScreenBackstopFrame</c> / <c>LockScreenInputOcclusionFrame</c> /
-/// <c>LockScreenControllerProxyWindow</c> — those classes <em>do</em> appear during real session
+/// <c>LockScreenControllerProxyWindow</c> - those classes <em>do</em> appear during real session
 /// lock and must remain SESSION_LOCK.
 /// </para>
 /// </summary>
@@ -32,7 +32,7 @@ internal static class ShellTransientPatterns
         "PopupHost",
         // XAML islands used by File Explorer and other shell surfaces.
         "XamlExplorerHostIslandWindow",
-        // The taskbar itself — fires a transient foreground during input-language change
+        // The taskbar itself - fires a transient foreground during input-language change
         // or when DWM re-parents the tray.
         "Shell_TrayWnd",
         // DWM compositor surface used during window-show animation.

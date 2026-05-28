@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace SpawnSpotter.Native;
 
 /// <summary>
-/// Win32 <c>BOOL</c> — a 4-byte signed integer where 0 == false. Required under
+/// Win32 <c>BOOL</c> - a 4-byte signed integer where 0 == false. Required under
 /// <c>[DisableRuntimeMarshalling]</c> because raw <c>bool</c> is non-blittable.
 /// </summary>
 internal readonly struct BOOL : IEquatable<BOOL>
@@ -22,7 +22,7 @@ internal readonly struct BOOL : IEquatable<BOOL>
 
 /// <summary>
 /// Win32 / NT API value types, struct layouts, and constant collections used across the project.
-/// Keep this file free of P/Invoke declarations — those live in <see cref="Win32"/>.
+/// Keep this file free of P/Invoke declarations - those live in <see cref="Win32"/>.
 /// </summary>
 internal static class Win32Const
 {

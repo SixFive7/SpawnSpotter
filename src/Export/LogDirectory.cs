@@ -21,7 +21,7 @@ internal static class LogDirectory
 
     /// <summary>
     /// Path for the per-format file at <paramref name="utc"/> (UTC). Overload exists so
-    /// <see cref="FileWriterBase"/> can compose paths with an injected clock — without it,
+    /// <see cref="FileWriterBase"/> can compose paths with an injected clock - without it,
     /// callers would have to round-trip through <see cref="DateTime.UtcNow"/> and lose the
     /// ability to test the day-rollover behavior deterministically.
     /// </summary>

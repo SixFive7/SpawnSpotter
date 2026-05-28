@@ -2,7 +2,7 @@ namespace SpawnSpotter.Input;
 
 /// <summary>
 /// Win32 virtual-key code constants needed by the keyboard hook's in-callback categorizer.
-/// Only the codes we actually act on are listed — the rest fall through to <see cref="KeyCategory.Other"/>.
+/// Only the codes we actually act on are listed - the rest fall through to <see cref="KeyCategory.Other"/>.
 /// </summary>
 internal static class Vk
 {

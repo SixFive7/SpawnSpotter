@@ -18,11 +18,11 @@ internal static class RecordFormatting
     /// <summary>
     /// RFC 4180 CSV escape: wrap in quotes if needed; double internal quotes.
     /// Additionally, neutralizes CSV formula injection (OWASP) by prefixing a single quote
-    /// when the cell would otherwise start with one of <c>= + - @ \t \r</c> — characters Excel,
+    /// when the cell would otherwise start with one of <c>= + - @ \t \r</c> - characters Excel,
     /// LibreOffice, and Google Sheets interpret as formula initiators. Window titles, command
     /// lines, parent-chain strings, and notes are attacker-influenced (any process can
     /// <c>SetWindowText</c> to anything, spawn anything), and this exporter advertises itself
-    /// as spreadsheet-friendly — exactly where the injection would otherwise execute.
+    /// as spreadsheet-friendly - exactly where the injection would otherwise execute.
     /// The leading <c>'</c> is treated by spreadsheets as a text-prefix hint and stripped on
     /// display, leaving the original value safely de-fanged.
     /// </summary>
@@ -101,7 +101,7 @@ internal static class RecordFormatting
 
     /// <summary>
     /// Basename-only chain rendering used by line-oriented formats:
-    /// <c>pid:basename:cmdline ► pid:basename:cmdline ► …</c>.
+    /// <c>pid:basename:cmdline -> pid:basename:cmdline -> ...</c>.
     /// </summary>
     public static string ChainBasenamesArrowed(IReadOnlyList<ChainNode> chain)
     {
@@ -109,7 +109,7 @@ internal static class RecordFormatting
         var sb = new StringBuilder(chain.Count * 64);
         for (var i = 0; i < chain.Count; i++)
         {
-            if (i > 0) { sb.Append(" ► "); /* ► */ }
+            if (i > 0) { sb.Append(" -> "); /* -> */ }
             var n = chain[i];
             sb.Append(n.Pid).Append(':').Append(n.ImageBasename);
             if (!string.IsNullOrEmpty(n.CommandLine))
@@ -122,7 +122,7 @@ internal static class RecordFormatting
 
     /// <summary>
     /// Plain-text one-liner. Example:
-    /// <c>2026-05-23 14:18:02.123Z [STEAL] pid=1234 cmd.exe ◄ Code.exe (window: "Foo")</c>
+    /// <c>2026-05-23 14:18:02.123Z [STEAL] pid=1234 cmd.exe <- Code.exe (window: "Foo")</c>
     /// </summary>
     public static string PlainTextLine(EventRecord r)
     {
@@ -134,7 +134,7 @@ internal static class RecordFormatting
 
         for (var i = 0; i < r.ParentChain.Count; i++)
         {
-            if (i > 0) { sb.Append(" ◄ "); /* ◄ */ }
+            if (i > 0) { sb.Append(" <- "); /* <- */ }
             sb.Append(r.ParentChain[i].ImageBasename);
         }
         sb.Append(" (window: \"").Append(r.WindowTitle).Append("\")");

@@ -12,10 +12,10 @@ namespace SpawnSpotter.Pipeline;
 /// <para>
 /// Lifecycle:
 /// <list type="number">
-///   <item><see cref="Start"/> — open the consumer handle and spin up the worker thread.</item>
+///   <item><see cref="Start"/> - open the consumer handle and spin up the worker thread.</item>
 ///   <item>Worker calls <c>ProcessTrace</c> in a tight loop; the OS delivers each event via
 ///   <see cref="EventRecordCallback"/>.</item>
-///   <item><see cref="Stop"/> — call <c>CloseTrace</c> on the consumer handle; <c>ProcessTrace</c>
+///   <item><see cref="Stop"/> - call <c>CloseTrace</c> on the consumer handle; <c>ProcessTrace</c>
 ///   returns shortly after. Join the worker thread.</item>
 /// </list>
 /// </para>
@@ -41,9 +41,9 @@ internal sealed unsafe class EtwConsumer : IDisposable
 
     /// <summary>
     /// True while the consumer thread is alive and dispatching events. Flips to false if
-    /// <c>ProcessTrace</c> returns an unexpected status or the worker throws — i.e., the abnormal
+    /// <c>ProcessTrace</c> returns an unexpected status or the worker throws - i.e., the abnormal
     /// termination paths. A normal <see cref="Stop"/> does NOT flip this; the consumer is still
-    /// "healthy" — it just shut down on request. Surface for the status line + exit summary so the
+    /// "healthy" - it just shut down on request. Surface for the status line + exit summary so the
     /// user sees that chain-walk past-exit recovery has silently weakened mid-run.
     /// </summary>
     public bool IsHealthy => _isHealthy;
@@ -60,7 +60,7 @@ internal sealed unsafe class EtwConsumer : IDisposable
 
     /// <summary>
     /// Open the consumer handle and start the worker thread. Throws
-    /// <see cref="EtwSessionException"/> if <c>OpenTraceW</c> fails — hard-fail per Q1a so the
+    /// <see cref="EtwSessionException"/> if <c>OpenTraceW</c> fails - hard-fail per Q1a so the
     /// Runner can exit cleanly.
     /// </summary>
     public void Start()
@@ -126,7 +126,7 @@ internal sealed unsafe class EtwConsumer : IDisposable
             }
         }
 
-        // Wait up to 3 s for the worker. If it's stuck, abandon it — the process is exiting.
+        // Wait up to 3 s for the worker. If it's stuck, abandon it - the process is exiting.
         try { _worker?.Join(TimeSpan.FromSeconds(3)); } catch { }
         _worker = null;
 
@@ -165,7 +165,7 @@ internal sealed unsafe class EtwConsumer : IDisposable
     [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
     private static void EventRecordCallback(Etw.EVENT_RECORD* rec)
     {
-        // Hot path — the NT Kernel Logger can emit tens of events/sec under load.
+        // Hot path - the NT Kernel Logger can emit tens of events/sec under load.
         // Quick out for null + missing-registry races (Stop racing with a pending event).
         if (rec == null) { return; }
         var registry = s_registry;

@@ -9,7 +9,7 @@ namespace SpawnSpotter.Tests;
 /// Synthetic-payload tests for the hand-rolled <c>NT Kernel Logger</c> classic Process
 /// (<c>Process_V4</c>) decoder. Builds the byte buffers the OS would hand us inside
 /// <c>EVENT_RECORD.UserData</c> and asserts the decoder extracts pid / parentPid / image /
-/// command line. No ETW session is started — these tests run on any machine.
+/// command line. No ETW session is started - these tests run on any machine.
 ///
 /// <para>
 /// Process_V4 x64 layout reproduced here:
@@ -43,9 +43,9 @@ public class EtwPayloadDecoderTests
         var fixedHeader = new byte[OffUserSid];
         BinaryPrimitives.WriteUInt32LittleEndian(fixedHeader.AsSpan(OffProcessId, 4), pid);
         BinaryPrimitives.WriteUInt32LittleEndian(fixedHeader.AsSpan(OffParentId, 4), parentPid);
-        // SessionId / ExitStatus / DirectoryTableBase / Flags left zero — decoder skips them.
+        // SessionId / ExitStatus / DirectoryTableBase / Flags left zero - decoder skips them.
 
-        // TOKEN_USER preamble (16 bytes) — first 8 bytes are the PSID pointer.
+        // TOKEN_USER preamble (16 bytes) - first 8 bytes are the PSID pointer.
         var preamble = new byte[TokenUserPreambleBytes];
         BinaryPrimitives.WriteUInt64LittleEndian(preamble.AsSpan(0, 8), sidPtr);
 
@@ -200,7 +200,7 @@ public class EtwPayloadDecoderTests
     [Test]
     public async Task DecodeProcessStart_ImageWithoutCommandLine_LeavesCommandLineEmpty()
     {
-        // Build a payload where the buffer ends right after the ANSI image NUL — no command line.
+        // Build a payload where the buffer ends right after the ANSI image NUL - no command line.
         var fixedHeader = new byte[OffUserSid];
         BinaryPrimitives.WriteUInt32LittleEndian(fixedHeader.AsSpan(OffProcessId, 4), 55u);
         BinaryPrimitives.WriteUInt32LittleEndian(fixedHeader.AsSpan(OffParentId, 4), 66u);
@@ -223,7 +223,7 @@ public class EtwPayloadDecoderTests
     [Test]
     public async Task DecodeProcessStop_ReadsPidAtOffset8()
     {
-        // The End event has the full Process_V4 layout — ProcessId is at offset 8, not 0.
+        // The End event has the full Process_V4 layout - ProcessId is at offset 8, not 0.
         var payload = new byte[OffUserSid];
         BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(OffProcessId, 4), 4242u);
 
@@ -335,7 +335,7 @@ public class EtwPayloadDecoderTests
         using var registry = new ProcessSpawnRegistry();
         var payload = BuildProcessStartPayload(3400, 4400, @"\Device\X\a.exe", "a.exe", sidPtr: 0);
 
-        // Right opcode, but the modern manifest provider GUID — must be rejected.
+        // Right opcode, but the modern manifest provider GUID - must be rejected.
         var handled = Dispatch(Etw.KernelProcessProviderGuid, EtwPayloadDecoder.OpcodeProcessStart, payload, registry, nowTickMs: 1);
 
         await Assert.That(handled).IsFalse();

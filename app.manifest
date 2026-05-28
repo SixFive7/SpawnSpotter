@@ -9,7 +9,7 @@
     (effectively administrator on Windows 11).
 
     UAC will prompt the user once at launch; nothing is installed or persisted
-    on the machine. uiAccess="false" — we are not an accessibility tool.
+    on the machine. uiAccess="false" - we are not an accessibility tool.
   -->
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>

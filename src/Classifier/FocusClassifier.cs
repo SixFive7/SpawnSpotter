@@ -44,7 +44,7 @@ public static class FocusClassifier
             || GlobMatcher.MatchesAny(input.ImageBasename, config.IgnoreImageGlobs))
         {
             // Drop silently (no log row, no LockedHwnd update). The consumer may still
-            // emit a diagnostic line at verbosity >= 2 — that's a console concern, not a log one.
+            // emit a diagnostic line at verbosity >= 2 - that's a console concern, not a log one.
             return new ClassifierResult(
                 Classification: Classification.UserOther,
                 Note: "ignore-filter drop",
@@ -72,8 +72,8 @@ public static class FocusClassifier
 
         // ---- Step 5: held-modifier suppression ----
         // Win or Alt was physically down when this window event fired (captured in the WinEvent
-        // callback). The user is mid-gesture — holding Alt through an Alt+Tab, Win through
-        // Win+number cycling, Ctrl+Win through a virtual-desktop switch — so any focus change
+        // callback). The user is mid-gesture - holding Alt through an Alt+Tab, Win through
+        // Win+number cycling, Ctrl+Win through a virtual-desktop switch - so any focus change
         // during the hold is user-driven, however long the hold lasts. Reported as USER_OTHER;
         // the anchor is NOT updated (the foreground during a hold is often transient, e.g. the
         // task-view UI; the real target is committed on release and classified then).
@@ -110,21 +110,21 @@ public static class FocusClassifier
         else if (input.LockedHwnd != IntPtr.Zero && input.Hwnd == input.LockedHwnd && input.LockedHwndIsAlive)
         {
             // Focus returned to the window you were already on (the locked anchor) with no user
-            // action — e.g. an interloper grabbed focus then handed it back. Not a steal; you're
+            // action - e.g. an interloper grabbed focus then handed it back. Not a steal; you're
             // back where you were. (LockedHwndIsAlive guards against a recycled handle that merely
-            // shares the numeric value — see the pipeline's owned-by-PID aliveness check.)
+            // shares the numeric value - see the pipeline's owned-by-PID aliveness check.)
             cls = Classification.FocusRestored;
         }
         else if (input.PrevForegroundPid != 0 && input.Pid == input.PrevForegroundPid)
         {
-            // Focus moved between two windows of the SAME process (intra-app navigation) — the app
+            // Focus moved between two windows of the SAME process (intra-app navigation) - the app
             // that already had the foreground raised another of its own windows. Not another app
             // barging in.
             cls = Classification.SameApp;
         }
         else if (input.PrevForegroundHwnd != IntPtr.Zero && !input.PrevForegroundIsAlive)
         {
-            // The window that HAD focus was just destroyed — focus was *released* to this window,
+            // The window that HAD focus was just destroyed - focus was *released* to this window,
             // not stolen (e.g. a long-running console command finished and its window closed).
             // IsWindow on the previous foreground is synchronous and latency-free; that window
             // held focus moments ago, so its destruction is intrinsically recent (unlike the
@@ -136,7 +136,7 @@ public static class FocusClassifier
             // No user action explains this focus change. Split by recent activity: if the user
             // touched the keyboard/mouse within StealActiveWindowMs it's a MAYBE_STEAL (could be
             // a delayed consequence of something they did); if the machine was idle that long,
-            // it's a high-confidence STEAL — the signature of an involuntary, app-driven steal.
+            // it's a high-confidence STEAL - the signature of an involuntary, app-driven steal.
             var idleMs = input.LastInputTickMs > 0 ? input.NowTickMs - input.LastInputTickMs : long.MaxValue;
             cls = (idleMs >= 0 && idleMs < config.StealActiveWindowMs)
                 ? Classification.MaybeSteal

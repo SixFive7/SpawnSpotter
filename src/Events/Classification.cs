@@ -3,17 +3,17 @@ namespace SpawnSpotter.Events;
 /// <summary>
 /// Final classification of an event row in the output. Most rows are focus-change
 /// classifications. <see cref="PipelinePressure"/> is a meta-row emitted by the enrichment
-/// pipeline when the input buffer crosses pressure thresholds — it tells the analyst "here's where
+/// pipeline when the input buffer crosses pressure thresholds - it tells the analyst "here's where
 /// the pipeline got stressed" in the natural ordering of events.
 ///
 /// <see cref="ShellTransient"/> deflects known transient shell hosts (XAML popup containers, taskbar
 /// previews, Foreground Staging surfaces, etc.) away from STEAL. These windows briefly take focus
-/// because the user is hovering over taskbar / Start / explorer thumbnails — legitimate, user-driven,
+/// because the user is hovering over taskbar / Start / explorer thumbnails - legitimate, user-driven,
 /// and not a candidate for the "involuntary focus theft" bucket.
 ///
 /// <see cref="Steal"/> vs <see cref="MaybeSteal"/> split an otherwise-unexplained focus change by
 /// recent input: <see cref="Steal"/> = the machine was idle (no key/mouse) for at least
-/// <c>--steal-idle</c> (default 5min), so the change is high-confidence involuntary — the bucket to
+/// <c>--steal-idle</c> (default 5min), so the change is high-confidence involuntary - the bucket to
 /// act on. <see cref="MaybeSteal"/> = the user was active within that window, so it could be a
 /// delayed consequence of something they did.
 ///
@@ -22,7 +22,7 @@ namespace SpawnSpotter.Events;
 /// and its window closed). Focus was released to the next window, not stolen.
 ///
 /// <see cref="FocusRestored"/> = focus returned to the window you were already on (the locked
-/// anchor) with no user action — e.g. an interloper grabbed focus then handed it back.
+/// anchor) with no user action - e.g. an interloper grabbed focus then handed it back.
 /// <see cref="SameApp"/> = focus moved between two windows of the same process (intra-app
 /// navigation), not another app barging in. Both are benign and surface at -v1.
 /// </summary>

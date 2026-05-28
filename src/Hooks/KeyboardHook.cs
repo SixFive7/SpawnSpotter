@@ -11,7 +11,7 @@ namespace SpawnSpotter.Hooks;
 /// and delegates the per-event decision to <see cref="KeyEventDecision"/>.
 ///
 /// <para>
-/// Privacy boundary: the raw <c>vkCode</c> is consumed locally — used to update modifier
+/// Privacy boundary: the raw <c>vkCode</c> is consumed locally - used to update modifier
 /// latches and passed to <see cref="KeyEventDecision.Decide"/> which returns only a
 /// <see cref="HookEventKind"/>. The vkCode itself never reaches a managed field, a posted
 /// event, a log record, or anywhere outside this method. The pipeline only sees the semantic
@@ -23,7 +23,7 @@ internal static unsafe class KeyboardHook
 {
     private static IntPtr s_hHook;
 
-    // Modifier latches — true while the corresponding key is currently held.
+    // Modifier latches - true while the corresponding key is currently held.
     // Lock-free: written by the keyboard hook callback (one thread), read by the categorizer.
     private static int s_altDown;
     private static int s_ctrlDown;
@@ -63,7 +63,7 @@ internal static unsafe class KeyboardHook
         var isUp = (data.Flags & Win32Const.LLKHF_UP) != 0;
         var osTime = data.Time;
 
-        // Update modifier state BEFORE deciding — so a Tab fired with Alt held registers
+        // Update modifier state BEFORE deciding - so a Tab fired with Alt held registers
         // as the Alt+Tab gesture, and a key released with Win held registers as a Win-combo.
         UpdateModifierState(vk, isUp);
 

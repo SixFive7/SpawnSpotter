@@ -398,12 +398,12 @@ internal static unsafe class ProcessReader
             return true;
         }
         // An earlier design specified a 10 ms back-off before the single retry. Removed because
-        // (a) the failure modes that need to "settle" — page-fault recovery, transient handle
-        // state — resolve in microseconds, not milliseconds; and (b) this code now runs from
+        // (a) the failure modes that need to "settle" - page-fault recovery, transient handle
+        // state - resolve in microseconds, not milliseconds; and (b) this code now runs from
         // the EnrichmentPipeline's TransformBlock worker, and a 10 ms blocking sleep there would
         // bloat enricher latency unnecessarily and pin a Dataflow worker thread. Trade-off
         // accepted: an occasional transient RPM failure now produces a "<unavailable>" cwd entry
-        // instead of being papered over by the sleep + retry. That's fine — the JSONL surface
+        // instead of being papered over by the sleep + retry. That's fine - the JSONL surface
         // already documents the failure via the chain node's `note` field.
         return Win32.ReadProcessMemory(hProc, (IntPtr)(long)address, buffer, size, out var read2) && read2 == size;
     }

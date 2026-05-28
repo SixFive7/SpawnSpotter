@@ -4,7 +4,7 @@ using Spectre.Console.Cli;
 namespace SpawnSpotter.Cli;
 
 /// <summary>
-/// The <c>version</c> command — prints version + git commit and exits 0.
+/// The <c>version</c> command - prints version + git commit and exits 0.
 /// </summary>
 public sealed class VersionCommand : Command
 {

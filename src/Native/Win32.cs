@@ -6,7 +6,7 @@ namespace SpawnSpotter.Native;
 /// <summary>
 /// All <c>[LibraryImport]</c> P/Invoke declarations used by SpawnSpotter.
 /// AOT rule: every native call goes through source-generated marshaling here.
-/// All blittable thanks to <c>[DisableRuntimeMarshalling]</c> at the assembly level — see
+/// All blittable thanks to <c>[DisableRuntimeMarshalling]</c> at the assembly level - see
 /// <see cref="BOOL"/> for the bool surrogate.
 /// </summary>
 internal static partial class Win32
@@ -15,8 +15,8 @@ internal static partial class Win32
     // Message loop / window plumbing
     // =========================================================================
 
-    // MSDN: returns int — > 0 (got a message), 0 (WM_QUIT received), -1 (error).
-    // The -1 path forces callers to distinguish "stop pumping" from "try again" — a raw
+    // MSDN: returns int - > 0 (got a message), 0 (WM_QUIT received), -1 (error).
+    // The -1 path forces callers to distinguish "stop pumping" from "try again" - a raw
     // BOOL surrogate would silently map -1 to true and re-enter the call, the canonical
     // MSDN footgun. With our args (hWnd=NULL, valid lpMsg, min=max=0) -1 is not reachable,
     // but the signature stays honest so a future caller can't trip the trap either.
@@ -98,7 +98,7 @@ internal static partial class Win32
     /// <summary>
     /// Real-time physical key state. High bit (0x8000) of the return is set while the key is
     /// physically down. Used in the WinEvent callbacks to detect a held Win/Alt at the exact
-    /// moment the foreground changed — authoritative (immune to a missed key-up desyncing our
+    /// moment the foreground changed - authoritative (immune to a missed key-up desyncing our
     /// own modifier latches).
     /// </summary>
     [LibraryImport("user32.dll", EntryPoint = "GetAsyncKeyState", SetLastError = false)]
@@ -171,7 +171,7 @@ internal static partial class Win32
     /// Returns TRUE when the current thread token is a member of the local Administrators
     /// group AND the token is elevated (i.e., UAC has granted us admin rights for this
     /// process). Returns FALSE for split-token standard processes even if the user is an
-    /// admin. Defensive belt-and-braces check used at startup — the app.manifest already
+    /// admin. Defensive belt-and-braces check used at startup - the app.manifest already
     /// requests requireAdministrator, so the OS-level UAC prompt happens before we run.
     /// </summary>
     [LibraryImport("shell32.dll", EntryPoint = "IsUserAnAdmin", SetLastError = false)]

@@ -41,7 +41,7 @@ Write-Host "---- output ----`n$out----------------"
 
 $ok = $true
 if ($code -ne 0) {
-    Write-Host "FAIL: exit code $code (expected 0) — the live ETW/hook lifecycle crashed."
+    Write-Host "FAIL: exit code $code (expected 0) - the live ETW/hook lifecycle crashed."
     $ok = $false
 } else {
     Write-Host "PASS: clean exit 0"
@@ -52,7 +52,7 @@ if ($code -ne 0) {
 if ($out -match 'Logged STEAL=') {
     Write-Host "PASS: exit summary present (full lifecycle ran)"
 } else {
-    Write-Host "FAIL: exit summary missing — shutdown path did not complete."
+    Write-Host "FAIL: exit summary missing - shutdown path did not complete."
     $ok = $false
 }
 

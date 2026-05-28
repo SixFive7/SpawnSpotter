@@ -38,7 +38,7 @@ public class GlobMatcherTests
     }
 
     // ---- Question-mark wildcard semantics ------------------------------------
-    // `?` must match EXACTLY ONE character — not zero, not many.
+    // `?` must match EXACTLY ONE character - not zero, not many.
 
     [Test]
     [Arguments("a?c", "abc", true)]   // one char in middle

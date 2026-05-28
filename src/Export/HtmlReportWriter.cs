@@ -135,7 +135,7 @@ const DATA =
         sb.Append(";\n");
         sb.Append("""
 function escape(s) { return (s ?? '').toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function chainSummary(c) { return (c ?? []).map(n => n.pid + ':' + (n.basename || '?')).join(' ◄ '); }
+function chainSummary(c) { return (c ?? []).map(n => n.pid + ':' + (n.basename || '?')).join(' <- '); }
 function chainDetail(c) {
   if (!c || !c.length) { return '<span class="empty">no chain</span>'; }
   const rows = c.map(n => {

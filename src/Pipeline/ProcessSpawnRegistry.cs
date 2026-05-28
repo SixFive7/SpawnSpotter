@@ -9,14 +9,14 @@ namespace SpawnSpotter.Pipeline;
 /// has exited.
 ///
 /// <para>
-/// Retention policy (Q2b — TTL-based):
+/// Retention policy (Q2b - TTL-based):
 /// <list type="bullet">
 ///   <item><b>Post-exit TTL = 10 minutes.</b> Once a process is marked Exited, keep it for
 ///   10 more minutes so chain walks for events that arrived shortly after the death can still
 ///   resolve. Past 10 min, the entry is useless (the user won't be looking at events that old
 ///   for the first time).</item>
 ///   <item><b>Absolute TTL = 60 minutes.</b> Cap entries that never exited at 60 min from
-///   first observation — guards against unbounded growth on long-running sessions where a
+///   first observation - guards against unbounded growth on long-running sessions where a
 ///   stable population of system processes would otherwise accumulate forever.</item>
 /// </list>
 /// Pruning runs lazily on a 60-second timer.
@@ -44,7 +44,7 @@ internal sealed class ProcessSpawnRegistry : IDisposable
     }
 
     /// <summary>
-    /// Record a process-start (or rundown — semantically identical to us) observation. If a
+    /// Record a process-start (or rundown - semantically identical to us) observation. If a
     /// record already exists for this pid (e.g. the user-mode walker beat us to it, or rundown
     /// arrived after the start), the newer observation wins.
     /// </summary>
@@ -84,7 +84,7 @@ internal sealed class ProcessSpawnRegistry : IDisposable
     /// <summary>True if we have any record (alive or recently exited) for this pid.</summary>
     public bool TryGet(uint pid, out ProcessSpawnInfo info) => _byPid.TryGetValue(pid, out info);
 
-    /// <summary>Visible for unit testing — drives a prune at a controlled time.</summary>
+    /// <summary>Visible for unit testing - drives a prune at a controlled time.</summary>
     internal void Prune(long nowTickMs)
     {
         // ConcurrentDictionary's snapshot enumeration is safe under concurrent writes.

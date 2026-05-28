@@ -3,7 +3,7 @@ using SpawnSpotter.Input;
 namespace SpawnSpotter.Tests;
 
 /// <summary>
-/// Unit tests for the keystroke categorization. Critical for the privacy guarantee —
+/// Unit tests for the keystroke categorization. Critical for the privacy guarantee -
 /// exercise the table directly so any regression is caught here before it could leak
 /// into a log row.
 /// </summary>
@@ -115,7 +115,7 @@ public class KeyCategorizerTests
     [Arguments((uint)0xA6)] // VK_BROWSER_BACK
     public async Task MediaAndBrowserKeys_AreCategorizedAsOther(uint vk)
     {
-        // Media/browser keys aren't text and aren't navigation — they fall through to
+        // Media/browser keys aren't text and aren't navigation - they fall through to
         // the Other bucket so the keyboard hook can record an "input happened" tick
         // without revealing what was pressed.
         await Assert.That(KeyCategorizer.Categorize(vk, anyModifierDown: false)).IsEqualTo(KeyCategory.Other);

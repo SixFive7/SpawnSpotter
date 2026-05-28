@@ -15,18 +15,10 @@ internal static class Program
         Justification = "Verified at AOT publish time; commands use strongly-typed CommandSettings only.")]
     public static int Main(string[] args)
     {
-        // Force the console to emit UTF-8 so the chain-arrow glyphs (◄ U+25C4 / ► U+25BA)
-        // produced by ConsoleUx and RecordFormatting render correctly. Right-click "Run as
-        // administrator" launches a fresh conhost with the legacy OEM code page (typically
-        // CP437 / CP1252), where these chars degrade to '?'. UTF-8 is a built-in encoding so
-        // this is safe under InvariantGlobalization=true + Native AOT. Done before the admin
-        // precheck so even our error output renders the way we expect.
-        System.Console.OutputEncoding = System.Text.Encoding.UTF8;
-
         // Defensive admin check. app.manifest requests requireAdministrator so the OS-level
         // UAC prompt already happened before Main runs; if we land here without elevation it
         // means someone stripped the manifest or used a development build path that bypasses
-        // it. ETW kernel-process tracing needs elevation — fail fast with a clear message
+        // it. ETW kernel-process tracing needs elevation - fail fast with a clear message
         // rather than crashing deep inside StartTraceW with a cryptic ERROR_ACCESS_DENIED.
         if (!Win32.IsUserAnAdmin())
         {

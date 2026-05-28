@@ -111,7 +111,7 @@ internal static unsafe class WinEventHooks
     /// True if Win or Alt is physically held at this instant. Queried via
     /// <see cref="Win32.GetAsyncKeyState"/> inside the callback so it reflects the modifier
     /// state at the exact moment the foreground changed (the classifier runs later, async,
-    /// by which point the key may be released). Win/Alt only — Ctrl/Shift are held constantly
+    /// by which point the key may be released). Win/Alt only - Ctrl/Shift are held constantly
     /// during normal work and would mask genuine steals. Ctrl+Win+Arrow is covered via Win.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -58,7 +58,7 @@ public class ProcessSpawnRegistryTests
         using var reg = new ProcessSpawnRegistry();
         reg.OnProcessStart(pid: 100, parentPid: 50, imageName: "cmd.exe", commandLine: "cmd.exe", observedAtTickMs: 0);
         reg.OnProcessStop(pid: 100, exitedAtTickMs: 1_000);
-        // 1 second past the TTL → must evict.
+        // 1 second past the TTL -> must evict.
         reg.Prune(nowTickMs: 1_000 + PostExitTtlMs + 1);
         await Assert.That(reg.TryGet(100, out _)).IsFalse();
         await Assert.That(reg.PrunedCount).IsEqualTo(1L);
@@ -70,7 +70,7 @@ public class ProcessSpawnRegistryTests
         using var reg = new ProcessSpawnRegistry();
         reg.OnProcessStart(pid: 100, parentPid: 50, imageName: "cmd.exe", commandLine: "cmd.exe", observedAtTickMs: 0);
         reg.OnProcessStop(pid: 100, exitedAtTickMs: 1_000);
-        // 1 second before the TTL → keep.
+        // 1 second before the TTL -> keep.
         reg.Prune(nowTickMs: 1_000 + PostExitTtlMs - 1);
         await Assert.That(reg.TryGet(100, out _)).IsTrue();
         await Assert.That(reg.PrunedCount).IsEqualTo(0L);

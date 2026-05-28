@@ -31,7 +31,7 @@ public readonly record struct ClassifierInput(
     long LastInputTickMs = 0,
     // The window that held the foreground immediately before this event, and whether it is still
     // a valid window. If it was destroyed (IsWindow == false), focus was released to this window,
-    // not stolen → PREV_WINDOW_CLOSED. PrevForegroundIsAlive defaults true so the check stays
+    // not stolen -> PREV_WINDOW_CLOSED. PrevForegroundIsAlive defaults true so the check stays
     // inert unless the caller wires the previous foreground in.
     IntPtr PrevForegroundHwnd = default,
     uint PrevForegroundPid = 0,

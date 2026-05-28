@@ -30,7 +30,7 @@
     <Description>Win32 focus-change logger for Windows 11</Description>
 
     <!-- Embed the UAC / DPI / OS-compat manifest into the output exe. The manifest
-         requests requireAdministrator — ETW kernel-process tracing needs it. -->
+         requests requireAdministrator - ETW kernel-process tracing needs it. -->
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
     <!-- Embed the Crosshair-Eye icon as Win32 resource. conhost picks this up

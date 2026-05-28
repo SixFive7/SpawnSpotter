@@ -136,7 +136,7 @@ public sealed class WatchSettings : CommandSettings
         // ExporterRegistry knows about. Without this check, an unknown token would surface as
         // an ArgumentException during pipeline construction and Program.cs would map it to
         // exit 64 (unhandled exception). README documents bad-args as exit 2, so route through
-        // Spectre's Validate() instead — ValidationResult.Error → exit 2 pre-execution.
+        // Spectre's Validate() instead - ValidationResult.Error -> exit 2 pre-execution.
         // Allowed set must stay in sync with ExporterRegistry's switch (csv, jsonl, logfmt, md,
         // markdown, log, txt, plain, html, plus empty which the registry silently ignores).
         if (Format is { Length: > 0 })

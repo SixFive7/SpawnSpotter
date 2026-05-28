@@ -40,7 +40,7 @@ public class FileWriterRolloverTests
             await using (var ex = new CsvExporter(dir, () => clock))
             {
                 await ex.WriteAsync(SampleRecord(clock));
-                // Advance within the same UTC day — no rotation.
+                // Advance within the same UTC day - no rotation.
                 clock = new DateTime(2026, 5, 24, 23, 59, 59, 999, DateTimeKind.Utc);
                 await ex.WriteAsync(SampleRecord(clock));
             }
@@ -65,7 +65,7 @@ public class FileWriterRolloverTests
             await using (var ex = new CsvExporter(dir, () => clock))
             {
                 await ex.WriteAsync(SampleRecord(clock));
-                // Cross midnight UTC — next write opens a fresh file with a new header.
+                // Cross midnight UTC - next write opens a fresh file with a new header.
                 clock = new DateTime(2026, 5, 25, 0, 0, 0, 1, DateTimeKind.Utc);
                 await ex.WriteAsync(SampleRecord(clock));
             }
@@ -90,7 +90,7 @@ public class FileWriterRolloverTests
     [Test]
     public async Task Jsonl_DayChange_RotatesWithoutHeader()
     {
-        // JSONL has no header — confirm rotation still produces a second file with one record.
+        // JSONL has no header - confirm rotation still produces a second file with one record.
         var dir = TempDir();
         try
         {
@@ -125,11 +125,11 @@ public class FileWriterRolloverTests
                 await ex.WriteAsync(SampleRecord(clock));
                 await Assert.That(ex.CurrentOpenUtcDate).IsEqualTo(new DateTime(2026, 5, 24, 0, 0, 0, DateTimeKind.Utc));
 
-                // Advance the clock past midnight. No write yet — open date is unchanged.
+                // Advance the clock past midnight. No write yet - open date is unchanged.
                 clock = new DateTime(2026, 5, 25, 0, 0, 1, DateTimeKind.Utc);
                 await Assert.That(ex.CurrentOpenUtcDate).IsEqualTo(new DateTime(2026, 5, 24, 0, 0, 0, DateTimeKind.Utc));
 
-                // First write after midnight — the rollover happens here, before the record is written.
+                // First write after midnight - the rollover happens here, before the record is written.
                 await ex.WriteAsync(SampleRecord(clock));
                 await Assert.That(ex.CurrentOpenUtcDate).IsEqualTo(new DateTime(2026, 5, 25, 0, 0, 0, DateTimeKind.Utc));
             }

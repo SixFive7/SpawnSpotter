@@ -5,7 +5,7 @@ namespace SpawnSpotter.Pipeline;
 
 /// <summary>
 /// Hand-rolled binary decoder for the classic (MOF) <c>Process</c> events emitted by the
-/// <c>NT Kernel Logger</c> — no TDH, no TraceEvent NuGet.
+/// <c>NT Kernel Logger</c> - no TDH, no TraceEvent NuGet.
 ///
 /// <para>
 /// Kernel Process events are discriminated by their MOF class GUID
@@ -17,7 +17,7 @@ namespace SpawnSpotter.Pipeline;
 ///
 /// <para>
 /// The payload (<c>EVENT_RECORD.UserData</c>) is the <c>Process_V4</c> structure. Unlike the
-/// modern manifest provider, this event carries the full command line at creation — captured
+/// modern manifest provider, this event carries the full command line at creation - captured
 /// race-free by the kernel. The decoder is fully bounds-checked and exception-free: when a
 /// payload is truncated or malformed it decodes what it safely can (pid/ppid sit at fixed
 /// offsets) and leaves the variable-length image / command line empty rather than throwing.
@@ -32,13 +32,13 @@ internal static class EtwPayloadDecoder
     public const byte OpcodeProcessDCEnd = 4;     // ignored
 
     // ---- Process_V4 fixed-field offsets (x64) --------------------------------
-    // [0..8)   UniqueProcessKey (pointer)  — skipped
+    // [0..8)   UniqueProcessKey (pointer)  - skipped
     // [8..12)  ProcessId       (uint32 LE)
     // [12..16) ParentId        (uint32 LE)
-    // [16..20) SessionId                   — skipped
-    // [20..24) ExitStatus                  — skipped
-    // [24..32) DirectoryTableBase (pointer)— skipped
-    // [32..36) Flags           (uint32)    — skipped
+    // [16..20) SessionId                   - skipped
+    // [20..24) ExitStatus                  - skipped
+    // [24..32) DirectoryTableBase (pointer)- skipped
+    // [32..36) Flags           (uint32)    - skipped
     // [36..]   UserSID (variable) then ImageFileName (ANSI) then CommandLine (UTF-16)
     private const int OffProcessId = 8;
     private const int OffParentId = 12;
@@ -88,7 +88,7 @@ internal static class EtwPayloadDecoder
         int userSidLen;
         if (sidPtr == 0)
         {
-            // Null SID — only the 16-byte preamble is present.
+            // Null SID - only the 16-byte preamble is present.
             userSidLen = TokenUserPreambleBytes;
         }
         else
@@ -99,7 +99,7 @@ internal static class EtwPayloadDecoder
             var subAuthCountOffset = OffUserSid + TokenUserPreambleBytes + 1;
             if (subAuthCountOffset >= payload.Length)
             {
-                // Preamble claims a SID follows but the buffer ends — header still valid.
+                // Preamble claims a SID follows but the buffer ends - header still valid.
                 return true;
             }
 
@@ -118,7 +118,7 @@ internal static class EtwPayloadDecoder
         var imageStart = OffUserSid + userSidLen;
         if (imageStart >= payload.Length)
         {
-            // SID consumed the whole buffer — no image / command line present.
+            // SID consumed the whole buffer - no image / command line present.
             return true;
         }
 
@@ -133,7 +133,7 @@ internal static class EtwPayloadDecoder
         {
             commandLine = ReadUtf16NullTerminated(payload[commandLineStart..]);
         }
-        // (After CommandLine come PackageFullName and ApplicationId UTF-16 — ignored.)
+        // (After CommandLine come PackageFullName and ApplicationId UTF-16 - ignored.)
 
         return true;
     }
@@ -154,7 +154,7 @@ internal static class EtwPayloadDecoder
 
     /// <summary>
     /// Read a NUL-terminated single-byte (ANSI) string from the start of <paramref name="bytes"/>.
-    /// Uses Latin1 so any byte 0x00–0xFF round-trips without throwing. Reports the number of
+    /// Uses Latin1 so any byte 0x00-0xFF round-trips without throwing. Reports the number of
     /// string bytes consumed (excluding the NUL) via <paramref name="byteLength"/>. If no NUL is
     /// found, the whole span is treated as the string.
     /// </summary>
@@ -204,7 +204,7 @@ internal static class EtwPayloadDecoder
     {
         if (rec == null || registry is null) { return false; }
 
-        // Discriminate by the classic Process MOF class GUID — not by EventDescriptor.Id.
+        // Discriminate by the classic Process MOF class GUID - not by EventDescriptor.Id.
         if (rec->EventHeader.ProviderId != Etw.EventTraceProcessGuid) { return false; }
 
         var opcode = rec->EventHeader.EventDescriptor.Opcode;
@@ -241,7 +241,7 @@ internal static class EtwPayloadDecoder
 
     /// <summary>
     /// Extract the file basename from an absolute or NT-relative path. Kernel image names
-    /// are often NT-format (<c>\Device\HarddiskVolume3\Windows\System32\cmd.exe</c>) — we
+    /// are often NT-format (<c>\Device\HarddiskVolume3\Windows\System32\cmd.exe</c>) - we
     /// only need the last path component for the chain walker's basename column.
     /// </summary>
     internal static string BasenameOf(string imagePath)

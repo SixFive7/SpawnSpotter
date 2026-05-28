@@ -6,7 +6,7 @@ namespace SpawnSpotter.Tests;
 
 /// <summary>
 /// Smoke tests for the exporter outputs: write one row, read it back, check the format
-/// looks right. Not exhaustive — the per-format formatting helpers have their own tests.
+/// looks right. Not exhaustive - the per-format formatting helpers have their own tests.
 /// </summary>
 public class ExporterRoundtripTests
 {

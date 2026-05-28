@@ -16,17 +16,17 @@ namespace SpawnSpotter.Pipeline;
 /// the parallel enricher.
 ///
 /// <para>
-/// Stage 1 — <see cref="BufferBlock{T}"/>&lt;<see cref="RawHookEvent"/>&gt;: receives microsecond-cheap
+/// Stage 1 - <see cref="BufferBlock{T}"/>&lt;<see cref="RawHookEvent"/>&gt;: receives microsecond-cheap
 /// posts from all 5 hook callbacks via <see cref="EventBus"/>. Drop-on-full; <see cref="Post"/>
 /// returns false when the buffer is at capacity (counter in <see cref="EventBus"/>).
 /// </para>
 /// <para>
-/// Stage 2 — <see cref="TransformBlock{TInput, TOutput}"/>: parallel enrichment, <c>EnsureOrdered=true</c>.
+/// Stage 2 - <see cref="TransformBlock{TInput, TOutput}"/>: parallel enrichment, <c>EnsureOrdered=true</c>.
 /// For window events: PID lookup, class/title reads, focused + parent + ancestor snapshots.
 /// For input events: passthrough (the window-only fields stay default).
 /// </para>
 /// <para>
-/// Stage 3 — <see cref="ActionBlock{TInput}"/> with <c>MaxDegreeOfParallelism = 1</c>: classifier
+/// Stage 3 - <see cref="ActionBlock{TInput}"/> with <c>MaxDegreeOfParallelism = 1</c>: classifier
 /// state machine. For window events: dedupe + classify + emit. For input events: update sink-local
 /// last-X timestamps and return without emitting.
 /// </para>
@@ -73,7 +73,7 @@ internal sealed class EnrichmentPipeline
     // isolation; the gate keeps its own (lastHwnd, lastTickMs) pair internally.
     private DedupeGate _dedupe;
 
-    // The window that currently holds the foreground — i.e. the "previous foreground" from the
+    // The window that currently holds the foreground - i.e. the "previous foreground" from the
     // perspective of the NEXT window event. If it has been destroyed by the time the next
     // foreground event arrives, focus was released (PREV_WINDOW_CLOSED), not stolen.
     private IntPtr _prevForegroundHwnd;
@@ -199,14 +199,14 @@ internal sealed class EnrichmentPipeline
         input.Complete();
         try { await sink.Completion.ConfigureAwait(false); }
         catch (OperationCanceledException) { }
-        catch { /* swallow — best-effort drain */ }
+        catch { /* swallow - best-effort drain */ }
         // After the sink has finished, no new records will be posted to the broadcast.
         // Complete it so linked consumer ActionBlocks can drain their own queues and finish.
         broadcast?.Complete();
     }
 
     // -------------------------------------------------------------------------
-    // Stage 2 — enrichment (branches on Kind)
+    // Stage 2 - enrichment (branches on Kind)
     // -------------------------------------------------------------------------
 
     /// <summary>
@@ -225,7 +225,7 @@ internal sealed class EnrichmentPipeline
     {
         // Fault isolation: anything inside the enricher body (Win32 reads, ProcessReader,
         // ancestor walks, allocations in ReadWindowText for very-long titles, future NREs)
-        // must NOT fault the Dataflow block — PropagateCompletion=true would tear down the
+        // must NOT fault the Dataflow block - PropagateCompletion=true would tear down the
         // sink and silently kill classification/logging for the rest of the run. Catch any
         // non-cancellation exception, emit a diagnostic so the analyst can see something
         // went wrong, and drop this one event by returning the empty enumerable. The block
@@ -304,7 +304,7 @@ internal sealed class EnrichmentPipeline
     {
         if (!raw.Kind.IsWindowEvent())
         {
-            // Input event or pressure event — no enrichment needed; carry the timestamps and
+            // Input event or pressure event - no enrichment needed; carry the timestamps and
             // the Note through. Window-only fields are default.
             return new EnrichedEvent(
                 Seq: raw.Seq,
@@ -323,7 +323,7 @@ internal sealed class EnrichmentPipeline
                 ModifierHeld: raw.ModifierHeld);
         }
 
-        // Window event — full enrichment.
+        // Window event - full enrichment.
         var hwnd = raw.Hwnd;
         if (hwnd == IntPtr.Zero)
         {
@@ -396,7 +396,7 @@ internal sealed class EnrichmentPipeline
             if (!ProcessReader.TrySnapshot(nextPid, _captureEnv, out var rec))
             {
                 // User-mode OpenProcess failed (process exited or PPL-protected). Fall back to
-                // the ETW-fed spawn registry — if we observed this PID earlier we still know
+                // the ETW-fed spawn registry - if we observed this PID earlier we still know
                 // its parent and image, so the chain can keep walking past the exit boundary.
                 if (_spawnRegistry is not null && _spawnRegistry.TryGet(nextPid, out var info))
                 {
@@ -488,12 +488,12 @@ internal sealed class EnrichmentPipeline
     }
 
     // -------------------------------------------------------------------------
-    // Stage 3 — classification + exporter fan-out (single-threaded; branches on Kind)
+    // Stage 3 - classification + exporter fan-out (single-threaded; branches on Kind)
     // -------------------------------------------------------------------------
 
     private void ProcessOne(EnrichedEvent ev)
     {
-        // Fault isolation: same reasoning as EnrichOne — an ActionBlock that faults completes
+        // Fault isolation: same reasoning as EnrichOne - an ActionBlock that faults completes
         // the sink, and PropagateCompletion=true on the upstream link would then tear the
         // whole pipeline down. Catch any non-cancellation exception, emit a diagnostic, and
         // drop just this one event so the next one is still processed.
@@ -590,11 +590,11 @@ internal sealed class EnrichmentPipeline
         var focusedImageBasename = ev.FocusedSnapshot?.ImageBasename ?? string.Empty;
         var focusedImagePath = ev.FocusedSnapshot?.ImagePath ?? string.Empty;
 
-        // Most-recent input of ANY kind (key or mouse) — feeds the STEAL vs MAYBE_STEAL split.
+        // Most-recent input of ANY kind (key or mouse) - feeds the STEAL vs MAYBE_STEAL split.
         var lastInputTickMs = Math.Max(_lastKeyTickMs, _lastMouseDownTickMs);
 
         // #4: corroborate the previous foreground's window-destroyed state with the ETW registry's
-        // process-exit signal. Positive-only — the feed lags ~1s, so a missing exit means "unknown".
+        // process-exit signal. Positive-only - the feed lags ~1s, so a missing exit means "unknown".
         var prevForegroundProcessExited = _prevForegroundPid != 0
             && _spawnRegistry is not null
             && _spawnRegistry.TryGet(_prevForegroundPid, out var prevInfo)
@@ -661,7 +661,7 @@ internal sealed class EnrichmentPipeline
         }
 
         // Remember this window as the foreground for the NEXT event's PREV_WINDOW_CLOSED check.
-        // Exclude transient popups, the lock screen, and ignore-filtered drops — none of those
+        // Exclude transient popups, the lock screen, and ignore-filtered drops - none of those
         // are "the window you were looking at".
         if (!result.DropFromLog
             && result.Classification != Classification.ShellTransient
@@ -731,7 +731,7 @@ internal sealed class EnrichmentPipeline
     /// Build a diagnostic record for an internal pipeline fault (an exception thrown inside
     /// <see cref="EnrichOne"/> or <see cref="ProcessOne"/>). Uses
     /// <see cref="Classification.PipelinePressure"/> + <see cref="MonitoredVia.Internal"/>
-    /// — the same semantic bucket as buffer-pressure notices — because the analyst's mental
+    /// - the same semantic bucket as buffer-pressure notices - because the analyst's mental
     /// model for both is "the pipeline itself had something to say", not "the user / a window
     /// did something". The note carries the exception type + message.
     /// </summary>
@@ -740,7 +740,7 @@ internal sealed class EnrichmentPipeline
     /// <param name="wallUtc">Wall-clock UTC time of the fault.</param>
     /// <param name="hwnd">HWND of the event that triggered the fault, if known
     /// (<see cref="IntPtr.Zero"/> for input/pressure events).</param>
-    /// <param name="note">Diagnostic note — typically <c>$"enricher exception: {type}: {msg}"</c>.</param>
+    /// <param name="note">Diagnostic note - typically <c>$"enricher exception: {type}: {msg}"</c>.</param>
     private static EventRecord BuildPipelineFaultRecord(long tickMs, DateTime wallUtc, IntPtr hwnd, string note)
     {
         _ = tickMs;  // reserved; not currently surfaced in EventRecord

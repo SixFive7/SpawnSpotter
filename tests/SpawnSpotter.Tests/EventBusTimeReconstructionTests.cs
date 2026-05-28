@@ -10,7 +10,7 @@ namespace SpawnSpotter.Tests;
 /// <para>
 /// The math is unsigned 32-bit subtraction so the 49.7-day wrap of the OS tick clock is
 /// handled transparently. A 10_000 ms cap rejects implausible rollbacks (clock-source
-/// mismatches, underflow from <c>osTime32 &gt; now32</c>, etc.) — when the cap rejects, the
+/// mismatches, underflow from <c>osTime32 &gt; now32</c>, etc.) - when the cap rejects, the
 /// caller's sample is returned untouched.
 /// </para>
 /// </summary>
@@ -28,7 +28,7 @@ public class EventBusTimeReconstructionTests
     public async Task OsTimeZero_IsNoOp()
     {
         // osTime32 == 0 is the documented "OS didn't provide a time" sentinel. The caller's
-        // sample must come out unchanged — no rollback, no wall-clock skew.
+        // sample must come out unchanged - no rollback, no wall-clock skew.
         var (tickMs, wallUtc) = EventBus.AdjustForOsTime(nowTickMs: 1_000_000, nowUtc: BaseUtc, osTime32: 0);
         await Assert.That(tickMs).IsEqualTo(1_000_000L);
         await Assert.That(wallUtc).IsEqualTo(BaseUtc);
@@ -51,13 +51,13 @@ public class EventBusTimeReconstructionTests
     }
 
     // -------------------------------------------------------------------------
-    // Cap: rollbacks past 10_000 ms are implausible — fall back to identity.
+    // Cap: rollbacks past 10_000 ms are implausible - fall back to identity.
     // -------------------------------------------------------------------------
 
     [Test]
     public async Task RollbackAboveCap_IsIgnored()
     {
-        // 11 seconds of rollback is way past any plausible scheduling delay — either a
+        // 11 seconds of rollback is way past any plausible scheduling delay - either a
         // different clock source or a misaligned 32-bit wrap. The function must reject and
         // return the caller's sample untouched.
         const long now = 1_000_000;
@@ -96,7 +96,7 @@ public class EventBusTimeReconstructionTests
     {
         // nowTickMs sits 5ms past a 32-bit wrap (now32 = 5), and the OS observed the event
         // BEFORE the wrap (osTime32 = 0xFFFFFFFE). The unsigned subtraction
-        // `5 - 0xFFFFFFFE` wraps to 7 — the correct rollback magnitude — and falls under the
+        // `5 - 0xFFFFFFFE` wraps to 7 - the correct rollback magnitude - and falls under the
         // 10_000 cap. The caller's 64-bit tick rolls back by 7.
         long now = unchecked((long)0x100000005UL);  // low 32 bits = 5
         const uint os = 0xFFFFFFFE;
@@ -108,15 +108,15 @@ public class EventBusTimeReconstructionTests
     // -------------------------------------------------------------------------
     // Underflow: osTime32 legitimately ahead of now32 (a few ms of clock skew between
     // the OS event timestamp and our callback's sample). Unsigned subtraction produces
-    // a near-maximum uint which the cap rejects → identity.
+    // a near-maximum uint which the cap rejects -> identity.
     // -------------------------------------------------------------------------
 
     [Test]
     public async Task OsTimeAheadOfNow_UnderflowsAndIsRejected()
     {
         // OS time is 50ms "in the future" relative to our sample (legitimate clock skew or
-        // sampling interleave). Unsigned `now32 - osTime32` underflows to 2^32 - 50 ≈ 4.3B,
-        // safely beyond the 10_000 cap. The caller's sample wins — no spurious teleport
+        // sampling interleave). Unsigned `now32 - osTime32` underflows to 2^32 - 50 ~ 4.3B,
+        // safely beyond the 10_000 cap. The caller's sample wins - no spurious teleport
         // far back in time.
         const long now = 1_000_000;
         const uint os = unchecked((uint)(now + 50));
@@ -133,7 +133,7 @@ public class EventBusTimeReconstructionTests
     [Test]
     public async Task FarFutureOsTime_IsRejected()
     {
-        // now32 small, osTime32 ~2.1B — not a wrap-adjacent value, just an implausibly
+        // now32 small, osTime32 ~2.1B - not a wrap-adjacent value, just an implausibly
         // distant OS timestamp (possibly from a clock that started counting elsewhere).
         // Confirms the cap defends against more than just the underflow case.
         const long now = 1_000_000;

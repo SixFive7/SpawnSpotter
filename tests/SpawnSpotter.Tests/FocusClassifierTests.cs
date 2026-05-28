@@ -258,7 +258,7 @@ public class FocusClassifierTests
     [Test]
     public async Task ClickThresholdOverride_ShorterWindow_FallsThroughToSteal()
     {
-        // Override click threshold to a very tight 50ms — a 100ms-old click should
+        // Override click threshold to a very tight 50ms - a 100ms-old click should
         // no longer count and the event should be STEAL.
         var cfg = DefaultCfg with { ClickThresholdMs = 50 };
         var input = Base(100_000) with { LastMouseDownTickMs = 99_900 }; // 100 ms ago
@@ -285,7 +285,7 @@ public class FocusClassifierTests
     public async Task OtherThresholdOverride_ExtendsBeyondDefault()
     {
         // A 2000ms-old "other system key" is STEAL under the 1500ms default but USER_OTHER
-        // with a 3000ms override — pins that the override is honored independently.
+        // with a 3000ms override - pins that the override is honored independently.
         var cfg = DefaultCfg with { OtherThresholdMs = 3000 };
         var input = Base(100_000) with { LastOtherSystemKeyReleaseTickMs = 98_000 }; // 2000 ms ago
         var r = FocusClassifier.Classify(input, cfg);
@@ -306,7 +306,7 @@ public class FocusClassifierTests
     [Test]
     public async Task OtherThresholdDefault_TwoSecondsOldSystemKey_IsSteal()
     {
-        // Just past the 1500ms default — falls through to STEAL. Pins the upper edge so the
+        // Just past the 1500ms default - falls through to STEAL. Pins the upper edge so the
         // window doesn't silently widen to swallow genuinely involuntary changes.
         var input = Base(100_000) with { LastOtherSystemKeyReleaseTickMs = 98_000 }; // 2000 ms ago
         var r = FocusClassifier.Classify(input, DefaultCfg);
@@ -353,7 +353,7 @@ public class FocusClassifierTests
     public async Task PipelineOrder_IgnoreFiltersBeatStandardClassification_UserClickCase()
     {
         // A fresh mouse-down would normally classify as USER_CLICK, but the ignore-image
-        // matches — pipeline step 3 must still drop the event silently.
+        // matches - pipeline step 3 must still drop the event silently.
         var cfg = DefaultCfg with { IgnoreImageGlobs = ["cmd.exe"] };
         var input = Base(100_000) with { LastMouseDownTickMs = 99_900 }; // 100 ms ago
         var r = FocusClassifier.Classify(input, cfg);
@@ -363,8 +363,8 @@ public class FocusClassifierTests
     [Test]
     public async Task PipelineOrder_IgnoreFiltersBeatStandardClassification_StealCase()
     {
-        // No recent input → standard classification would be STEAL, but ignore-class
-        // matches → silent drop. We assert DropFromLog regardless of the placeholder
+        // No recent input -> standard classification would be STEAL, but ignore-class
+        // matches -> silent drop. We assert DropFromLog regardless of the placeholder
         // Classification value (currently UserOther; the consumer never emits the row).
         var cfg = DefaultCfg with { IgnoreClassGlobs = ["ConsoleWindowClass"] };
         var r = FocusClassifier.Classify(Base(), cfg);
@@ -385,7 +385,7 @@ public class FocusClassifierTests
         // but the anchor has been seeded by the caller from GetForegroundWindow().
         var input = Base(100_000) with
         {
-            // No recent user input — would normally be STEAL.
+            // No recent user input - would normally be STEAL.
             LastAltTabReleaseTickMs = 0,
             LastMouseDownTickMs = 0,
             LastOtherSystemKeyReleaseTickMs = 0,
@@ -478,7 +478,7 @@ public class FocusClassifierTests
     public async Task ShellTransient_DisabledViaNoShellClassify_FallsThroughToStandard()
     {
         // Without the deflector the built-in PopupHost class falls through to standard
-        // classification — and with no recent input, that's STEAL.
+        // classification - and with no recent input, that's STEAL.
         var cfg = DefaultCfg with { DisableShellClassify = true };
         var input = Base() with { WindowClass = "PopupHost" };
         var r = FocusClassifier.Classify(input, cfg);
@@ -517,7 +517,7 @@ public class FocusClassifierTests
     [Test]
     public async Task ShellTransient_NormalConsoleClass_FallsThroughToStandard()
     {
-        // ConsoleWindowClass is not in the built-in catalogue — must still be STEAL
+        // ConsoleWindowClass is not in the built-in catalogue - must still be STEAL
         // when no recent input. Pins the negative case: SHELL_TRANSIENT is opt-in by
         // class, not a default sink.
         var r = FocusClassifier.Classify(Base(), DefaultCfg);
@@ -525,9 +525,9 @@ public class FocusClassifierTests
     }
 
     // -------------------------------------------------------------------------
-    // Click threshold default bump (500 → 5000): a 2-second-old click should now
+    // Click threshold default bump (500 -> 5000): a 2-second-old click should now
     // still classify as USER_CLICK under defaults, where it would previously have
-    // been STEAL. This pins the new headline default behavior — slow-following
+    // been STEAL. This pins the new headline default behavior - slow-following
     // popups (file dialogs, taskbar previews) get the benefit of the doubt.
     // -------------------------------------------------------------------------
 
@@ -549,7 +549,7 @@ public class FocusClassifierTests
     [Test]
     public async Task ModifierHeld_NoRecentInput_IsUserOther()
     {
-        // Would be STEAL (no recent input), but Win/Alt is held → user is mid-gesture.
+        // Would be STEAL (no recent input), but Win/Alt is held -> user is mid-gesture.
         var input = Base() with { ModifierHeld = true };
         var r = FocusClassifier.Classify(input, DefaultCfg);
         await Assert.That(r.Classification).IsEqualTo(Classification.UserOther);
@@ -600,7 +600,7 @@ public class FocusClassifierTests
     [Test]
     public async Task Steal_NoInputEverSeen_IsForSureSteal()
     {
-        // Base has LastInputTickMs = 0 (no input observed) → idle → high-confidence STEAL.
+        // Base has LastInputTickMs = 0 (no input observed) -> idle -> high-confidence STEAL.
         var r = FocusClassifier.Classify(Base(), DefaultCfg);
         await Assert.That(r.Classification).IsEqualTo(Classification.Steal);
     }
@@ -608,7 +608,7 @@ public class FocusClassifierTests
     [Test]
     public async Task Steal_RecentInput_IsMaybeSteal()
     {
-        // Any key/mouse activity 1s ago (well within the 5min default) → MAYBE_STEAL.
+        // Any key/mouse activity 1s ago (well within the 5min default) -> MAYBE_STEAL.
         var input = Base(100_000) with { LastInputTickMs = 99_000 };
         var r = FocusClassifier.Classify(input, DefaultCfg);
         await Assert.That(r.Classification).IsEqualTo(Classification.MaybeSteal);
@@ -617,7 +617,7 @@ public class FocusClassifierTests
     [Test]
     public async Task Steal_OldInput_IsForSureSteal()
     {
-        // Last input 6min ago, default idle window 5min → high-confidence STEAL.
+        // Last input 6min ago, default idle window 5min -> high-confidence STEAL.
         var now = 6 * 60 * 1000L + 100_000;
         var input = Base(now) with { LastInputTickMs = 100_000 };
         var r = FocusClassifier.Classify(input, DefaultCfg);
@@ -637,7 +637,7 @@ public class FocusClassifierTests
     [Test]
     public async Task StealIdleSplit_RespectsEdges()
     {
-        // StealActiveWindowMs = 300_000 (5min). 299s ago → MAYBE_STEAL; 301s ago → STEAL.
+        // StealActiveWindowMs = 300_000 (5min). 299s ago -> MAYBE_STEAL; 301s ago -> STEAL.
         var inside = Base(299_000L + 100_000) with { LastInputTickMs = 100_000 };
         await Assert.That(FocusClassifier.Classify(inside, DefaultCfg).Classification)
             .IsEqualTo(Classification.MaybeSteal);
@@ -684,7 +684,7 @@ public class FocusClassifierTests
     public async Task PrevForegroundDestroyed_RecentClick_StaysUserClick()
     {
         // A deliberate click within threshold wins attribution over the prev-closed check
-        // (e.g. the user clicked the X to close the window — that's user-driven).
+        // (e.g. the user clicked the X to close the window - that's user-driven).
         var input = Base(100_000) with
         {
             LastMouseDownTickMs = 99_900, // 100 ms ago
@@ -714,7 +714,7 @@ public class FocusClassifierTests
     [Test]
     public async Task PrevForegroundAlive_NoInput_IsSteal()
     {
-        // Previous foreground still exists → normal STEAL fall-through, unchanged.
+        // Previous foreground still exists -> normal STEAL fall-through, unchanged.
         var input = Base() with
         {
             PrevForegroundHwnd = (IntPtr)0x9000,
@@ -736,7 +736,7 @@ public class FocusClassifierTests
     [Test]
     public async Task PrevForegroundDestroyed_DoesNotUpdateAnchor()
     {
-        // Focus was released to us, not user-driven — the anchor must not move to this window.
+        // Focus was released to us, not user-driven - the anchor must not move to this window.
         var input = Base() with
         {
             PrevForegroundHwnd = (IntPtr)0x9000,
@@ -748,14 +748,14 @@ public class FocusClassifierTests
 
     // -------------------------------------------------------------------------
     // No-explicit-user-action branch ordering (step 6): the fall-through ladder is
-    // FOCUS_RESTORED → SAME_APP → PREV_WINDOW_CLOSED → STEAL/MAYBE_STEAL split. Explicit
+    // FOCUS_RESTORED -> SAME_APP -> PREV_WINDOW_CLOSED -> STEAL/MAYBE_STEAL split. Explicit
     // user-action checks (alt-tab / click / other-system-key) sit ahead of the whole ladder.
     // -------------------------------------------------------------------------
 
     [Test]
     public async Task FocusRestored_NewForegroundIsLiveAnchor_NoInput()
     {
-        // New foreground == the live locked anchor, no user input → focus returned to where
+        // New foreground == the live locked anchor, no user input -> focus returned to where
         // you were. Anchor must NOT move (you never left).
         var input = Base() with { Hwnd = (IntPtr)0x2000 }; // == LockedHwnd (alive)
         var r = FocusClassifier.Classify(input, DefaultCfg);
@@ -769,7 +769,7 @@ public class FocusClassifierTests
     {
         // Same Hwnd as the anchor numerically, but the anchor is dead (recycled handle). The
         // LockedHwndIsAlive guard blocks FOCUS_RESTORED; with no prev-foreground set it falls to
-        // the idle split → STEAL.
+        // the idle split -> STEAL.
         var input = Base() with { Hwnd = (IntPtr)0x2000, LockedHwndIsAlive = false };
         var r = FocusClassifier.Classify(input, DefaultCfg);
         await Assert.That(r.Classification).IsNotEqualTo(Classification.FocusRestored);
@@ -780,7 +780,7 @@ public class FocusClassifierTests
     public async Task SameApp_NewPidMatchesPrevForeground_NoInput()
     {
         // New foreground belongs to the same process that previously had focus (Hwnd differs
-        // from the anchor so FOCUS_RESTORED doesn't fire) → intra-app navigation.
+        // from the anchor so FOCUS_RESTORED doesn't fire) -> intra-app navigation.
         var input = Base() with { PrevForegroundPid = 1234 }; // == Pid; Hwnd 0x1000 != LockedHwnd 0x2000
         var r = FocusClassifier.Classify(input, DefaultCfg);
         await Assert.That(r.Classification).IsEqualTo(Classification.SameApp);
@@ -801,7 +801,7 @@ public class FocusClassifierTests
     public async Task RecentClick_BeatsFocusRestored()
     {
         // A fresh click is an explicit user action and is evaluated before the whole no-action
-        // ladder — so even when the new foreground is the live anchor, it's USER_CLICK.
+        // ladder - so even when the new foreground is the live anchor, it's USER_CLICK.
         var input = Base(100_000) with { Hwnd = (IntPtr)0x2000, LastMouseDownTickMs = 99_900 }; // 100 ms ago
         var r = FocusClassifier.Classify(input, DefaultCfg);
         await Assert.That(r.Classification).IsEqualTo(Classification.UserClick);
@@ -842,7 +842,7 @@ public class FocusClassifierTests
     [Test]
     public async Task PrevWindowClosed_ProcessNotConfirmed_NoteSaysClosed()
     {
-        // Same as the exited case but the process-exit signal is absent (unknown) → the note
+        // Same as the exited case but the process-exit signal is absent (unknown) -> the note
         // says "closed" and must NOT claim the process exited.
         var input = Base() with
         {

@@ -13,7 +13,7 @@ namespace SpawnSpotter.Hooks;
 /// <para>
 /// Per Microsoft Docs, low-level hooks (<c>WH_KEYBOARD_LL</c>, <c>WH_MOUSE_LL</c>) and
 /// <c>SetWinEventHook</c> with <c>WINEVENT_OUTOFCONTEXT</c> all require the installing thread
-/// to have an active message loop — that's what dispatches their callbacks. The thread that
+/// to have an active message loop - that's what dispatches their callbacks. The thread that
 /// installs the hook is the thread its callbacks fire on. Sharing one thread across hooks means
 /// a callback in flight can delay every other hook's callbacks behind it on the same queue.
 /// One thread per hook eliminates that cross-hook interference entirely.
@@ -119,7 +119,7 @@ internal sealed class HookHostThread
                 CreateMonitorWindow();
             }
 
-            // Install the hook ON the STA thread — this is the point of the whole class.
+            // Install the hook ON the STA thread - this is the point of the whole class.
             _onReady();
 
             _ready.Set();

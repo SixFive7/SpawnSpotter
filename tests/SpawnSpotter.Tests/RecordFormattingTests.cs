@@ -111,7 +111,7 @@ public class RecordFormattingTests
         var s = RecordFormatting.ChainBasenamesArrowed(chain);
         await Assert.That(s).Contains("123:cmd.exe");
         await Assert.That(s).Contains("456:Code.exe");
-        await Assert.That(s).Contains("►");
+        await Assert.That(s).Contains("->");
     }
 
     [Test]
@@ -130,7 +130,7 @@ public class RecordFormattingTests
     [Test]
     public async Task ChainBasenamesArrowed_EmptyCmdline_OmitsTrailingColon()
     {
-        // When cmdline is empty, the formatter must NOT append `:""` — only the
+        // When cmdline is empty, the formatter must NOT append `:""` - only the
         // pid:basename pair is produced.
         var chain = new[]
         {
@@ -150,7 +150,7 @@ public class RecordFormattingTests
     public async Task ChainBasenamesArrowed_UsesBasenameNotFullPath()
     {
         // The line-format rendering must use ImageBasename (cmd.exe) rather than ImagePath
-        // (C:\Windows\System32\cmd.exe) — keeps line-format logs concise.
+        // (C:\Windows\System32\cmd.exe) - keeps line-format logs concise.
         var chain = new[]
         {
             new ChainNode(123, @"C:\Windows\System32\cmd.exe", "cmd.exe", string.Empty, @"C:\", null, null, 0, null),
@@ -191,7 +191,7 @@ public class RecordFormattingTests
     public async Task PlainTextLine_MatchesExpectedShape()
     {
         // Expected one-liner shape:
-        // 2026-05-23 14:18:02.123Z [STEAL] pid=1234 cmd.exe ◄ Code.exe (window: "Foo")
+        // 2026-05-23 14:18:02.123Z [STEAL] pid=1234 cmd.exe <- Code.exe (window: "Foo")
         var rec = new EventRecord(
             TimestampUtc: new DateTime(2026, 5, 23, 14, 18, 2, 123, DateTimeKind.Utc),
             Classification: Classification.Steal,
@@ -208,14 +208,14 @@ public class RecordFormattingTests
             LockedHwndBefore: IntPtr.Zero, LockedPidBefore: 0,
             Note: "");
         var line = RecordFormatting.PlainTextLine(rec);
-        await Assert.That(line).IsEqualTo("2026-05-23 14:18:02.123Z [STEAL] pid=1234 cmd.exe ◄ Code.exe (window: \"Foo\")");
+        await Assert.That(line).IsEqualTo("2026-05-23 14:18:02.123Z [STEAL] pid=1234 cmd.exe <- Code.exe (window: \"Foo\")");
     }
 
     [Test]
     public async Task PlainTextLine_UsesArrowSeparator()
     {
-        // Specifically pin the ◄ separator — different glyph than the
-        // ChainBasenamesArrowed helper (which uses ►) on purpose: line format reads
+        // Specifically pin the <- separator - different glyph than the
+        // ChainBasenamesArrowed helper (which uses ->) on purpose: line format reads
         // child-first, the parent-chain helper reads parent-first.
         var rec = new EventRecord(
             TimestampUtc: new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
@@ -230,7 +230,7 @@ public class RecordFormattingTests
             LockedHwndBefore: IntPtr.Zero, LockedPidBefore: 0,
             Note: "");
         var line = RecordFormatting.PlainTextLine(rec);
-        await Assert.That(line).Contains("a.exe ◄ b.exe");
+        await Assert.That(line).Contains("a.exe <- b.exe");
         await Assert.That(line).Contains("[USER_ALT_TAB]");
     }
 }

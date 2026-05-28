@@ -6,7 +6,7 @@ namespace SpawnSpotter.Native;
 /// ETW (Event Tracing for Windows) <c>[LibraryImport]</c> P/Invoke declarations and minimal
 /// struct layouts. Used by <see cref="Pipeline.EtwSession"/> to control the system-wide
 /// real-time <c>NT Kernel Logger</c> session, which emits classic (MOF) Process events that
-/// carry the full command line at creation — race-free, unlike a post-spawn user-mode query.
+/// carry the full command line at creation - race-free, unlike a post-spawn user-mode query.
 ///
 /// <para>
 /// Hand-rolled P/Invoke + <c>[LibraryImport]</c> (no TraceEvent NuGet, no <c>[DllImport]</c>).
@@ -20,16 +20,16 @@ internal static partial class Etw
     // =========================================================================
 
     /// <summary>
-    /// <c>Microsoft-Windows-Kernel-Process</c> — public ETW manifest provider that emits
+    /// <c>Microsoft-Windows-Kernel-Process</c> - public ETW manifest provider that emits
     /// ProcessStart (id 1), ProcessStop (id 2), ProcessRundown (id 15), ThreadStart (id 3),
     /// ImageLoad (id 5), and friends. Documented but does NOT emit the command line. Retained
-    /// only for reference — the active session uses the NT Kernel Logger (below) instead.
+    /// only for reference - the active session uses the NT Kernel Logger (below) instead.
     /// </summary>
     public static readonly Guid KernelProcessProviderGuid =
         new("22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716");
 
     /// <summary>
-    /// <c>SystemTraceControlGuid</c> — the well-known session GUID that selects the singleton
+    /// <c>SystemTraceControlGuid</c> - the well-known session GUID that selects the singleton
     /// <c>NT Kernel Logger</c> kernel session. Written to <see cref="WNODE_HEADER.Guid"/> in
     /// <c>StartTraceW</c>; combined with <see cref="EVENT_TRACE_FLAG_PROCESS"/> in
     /// <see cref="EVENT_TRACE_PROPERTIES.EnableFlags"/> it turns on classic Process events.
@@ -38,7 +38,7 @@ internal static partial class Etw
         new("9e814aad-3204-11d2-9a82-006008a86939");
 
     /// <summary>
-    /// <c>EventTraceProcessGuid</c> — the MOF event-class GUID stamped into
+    /// <c>EventTraceProcessGuid</c> - the MOF event-class GUID stamped into
     /// <c>EVENT_RECORD.EventHeader.ProviderId</c> for every classic kernel Process event
     /// (Start / End / DCStart / DCEnd). We discriminate kernel Process events by this GUID,
     /// NOT by <c>EventDescriptor.Id</c> (classic MOF events carry Id = 0).
@@ -68,7 +68,7 @@ internal static partial class Etw
     /// <summary>Use pageable buffers (less critical memory pressure on the system).</summary>
     public const uint EVENT_TRACE_USE_PAGED_MEMORY = 0x01000000;
 
-    /// <summary>QueryPerformanceCounter — highest-resolution timestamps.</summary>
+    /// <summary>QueryPerformanceCounter - highest-resolution timestamps.</summary>
     public const uint WNODE_CLIENT_CONTEXT_QPC = 1;
 
     /// <summary>Required <see cref="WNODE_HEADER.Flags"/> bit for trace sessions.</summary>
@@ -100,7 +100,7 @@ internal static partial class Etw
     public const int ERROR_WMI_INSTANCE_NOT_FOUND = 4201;
 
     // =========================================================================
-    // Structs — session control
+    // Structs - session control
     // =========================================================================
 
     /// <summary>
@@ -113,9 +113,9 @@ internal static partial class Etw
     {
         public uint BufferSize;        // total bytes (header + properties + trailing names)
         public uint ProviderId;        // unused for user-mode loggers
-        public ulong HistoricalContext;// union: { Version, Linkage } — leave zero
-        public long TimeStamp;         // union: KernelHandle — leave zero
-        public Guid Guid;              // session GUID — leave zero (kernel assigns)
+        public ulong HistoricalContext;// union: { Version, Linkage } - leave zero
+        public long TimeStamp;         // union: KernelHandle - leave zero
+        public Guid Guid;              // session GUID - leave zero (kernel assigns)
         public uint ClientContext;     // 1 = QPC clock
         public uint Flags;             // WNODE_FLAG_TRACED_GUID
     }
@@ -134,8 +134,8 @@ internal static partial class Etw
         public uint MaximumFileSize;       // 0 = no cap (real-time only)
         public uint LogFileMode;           // EVENT_TRACE_REAL_TIME_MODE | EVENT_TRACE_USE_PAGED_MEMORY
         public uint FlushTimer;            // seconds; 0 = default
-        public uint EnableFlags;           // NT Kernel Logger group mask — EVENT_TRACE_FLAG_PROCESS
-        public int AgeLimit;               // union: { FlushThreshold } — leave zero
+        public uint EnableFlags;           // NT Kernel Logger group mask - EVENT_TRACE_FLAG_PROCESS
+        public int AgeLimit;               // union: { FlushThreshold } - leave zero
         public uint NumberOfBuffers;       // [out]
         public uint FreeBuffers;           // [out]
         public uint EventsLost;            // [out]
@@ -143,21 +143,21 @@ internal static partial class Etw
         public uint LogBuffersLost;        // [out]
         public uint RealTimeBuffersLost;   // [out]
         public IntPtr LoggerThreadId;      // [out]
-        public uint LogFileNameOffset;     // 0 — real-time, no file
-        public uint LoggerNameOffset;      // sizeof(EVENT_TRACE_PROPERTIES) — points at trailing name buffer
+        public uint LogFileNameOffset;     // 0 - real-time, no file
+        public uint LoggerNameOffset;      // sizeof(EVENT_TRACE_PROPERTIES) - points at trailing name buffer
     }
 
     /// <summary>Size of the fixed prefix of <see cref="EVENT_TRACE_PROPERTIES"/> in bytes.
-    /// Equals 120 on x64 — used by the session allocator to position the trailing name buffer
+    /// Equals 120 on x64 - used by the session allocator to position the trailing name buffer
     /// at the offset stored in <see cref="EVENT_TRACE_PROPERTIES.LoggerNameOffset"/>.</summary>
     public static unsafe int SizeOfEventTraceProperties => sizeof(EVENT_TRACE_PROPERTIES);
 
     // =========================================================================
-    // P/Invokes — session control
+    // P/Invokes - session control
     // =========================================================================
 
     /// <summary>
-    /// <c>StartTraceW</c> — create a private real-time ETW session.
+    /// <c>StartTraceW</c> - create a private real-time ETW session.
     /// Returns 0 on success or a Win32 error code (e.g. <see cref="ERROR_ALREADY_EXISTS"/>,
     /// <see cref="ERROR_ACCESS_DENIED"/>).
     /// </summary>
@@ -168,7 +168,7 @@ internal static partial class Etw
         EVENT_TRACE_PROPERTIES* Properties);
 
     /// <summary>
-    /// <c>ControlTraceW</c> — stop / flush / query a running session by name or handle.
+    /// <c>ControlTraceW</c> - stop / flush / query a running session by name or handle.
     /// </summary>
     [LibraryImport("advapi32.dll", EntryPoint = "ControlTraceW", StringMarshalling = StringMarshalling.Utf16, SetLastError = false)]
     public static unsafe partial int ControlTraceW(
@@ -178,7 +178,7 @@ internal static partial class Etw
         uint ControlCode);
 
     /// <summary>
-    /// <c>EnableTraceEx2</c> — attach a provider GUID to an existing session.
+    /// <c>EnableTraceEx2</c> - attach a provider GUID to an existing session.
     /// </summary>
     [LibraryImport("advapi32.dll", EntryPoint = "EnableTraceEx2", SetLastError = false)]
     public static unsafe partial int EnableTraceEx2(
@@ -192,7 +192,7 @@ internal static partial class Etw
         IntPtr EnableParameters);
 
     // =========================================================================
-    // Structs — consumer side
+    // Structs - consumer side
     // =========================================================================
 
     /// <summary>The fixed header on every <see cref="EVENT_RECORD"/>.</summary>
@@ -263,7 +263,7 @@ internal static partial class Etw
         public long CurrentTime;
         public uint BuffersRead;
         public uint ProcessTraceMode;        // PROCESS_TRACE_MODE_*
-        public EVENT_TRACE CurrentEvent;     // 240 bytes — unused but consumes space in the struct
+        public EVENT_TRACE CurrentEvent;     // 240 bytes - unused but consumes space in the struct
         public TRACE_LOGFILE_HEADER LogFileHeader;
         public delegate* unmanaged[Stdcall]<EVENT_TRACE*, void> BufferCallback;
         public uint BufferSize;
@@ -357,11 +357,11 @@ internal static partial class Etw
     }
 
     // =========================================================================
-    // P/Invokes — consumer side
+    // P/Invokes - consumer side
     // =========================================================================
 
     /// <summary>
-    /// <c>OpenTraceW</c> — open a real-time trace handle bound to the session named in
+    /// <c>OpenTraceW</c> - open a real-time trace handle bound to the session named in
     /// <see cref="EVENT_TRACE_LOGFILEW.LoggerName"/>. Returns <c>INVALID_PROCESSTRACE_HANDLE</c>
     /// (= 0xFFFFFFFFFFFFFFFF) on failure; check <c>Marshal.GetLastPInvokeError</c>.
     /// </summary>
@@ -369,7 +369,7 @@ internal static partial class Etw
     public static unsafe partial ulong OpenTraceW(EVENT_TRACE_LOGFILEW* Logfile);
 
     /// <summary>
-    /// <c>ProcessTrace</c> — blocks the calling thread, pumping events into the configured
+    /// <c>ProcessTrace</c> - blocks the calling thread, pumping events into the configured
     /// callback until either every handle is closed or <c>EndTime</c> elapses.
     /// </summary>
     [LibraryImport("advapi32.dll", EntryPoint = "ProcessTrace", SetLastError = false)]
@@ -380,7 +380,7 @@ internal static partial class Etw
         IntPtr EndTime);
 
     /// <summary>
-    /// <c>CloseTrace</c> — break out of <see cref="ProcessTrace"/>. Returns
+    /// <c>CloseTrace</c> - break out of <see cref="ProcessTrace"/>. Returns
     /// <c>ERROR_CTX_CLOSE_PENDING</c> while events are still being delivered.
     /// </summary>
     [LibraryImport("advapi32.dll", EntryPoint = "CloseTrace", SetLastError = false)]

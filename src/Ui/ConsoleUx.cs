@@ -24,7 +24,7 @@ internal sealed class ConsoleUx
     {
         _settings = settings;
         _counters = counters;
-        // Optional — null means "skip the health marker". Func<bool> rather than the EtwConsumer
+        // Optional - null means "skip the health marker". Func<bool> rather than the EtwConsumer
         // itself to avoid pulling the consumer into UI dependencies and to make tests trivial.
         _etwHealthProbe = etwHealthProbe;
         _startedAtUtc = DateTime.UtcNow;
@@ -38,7 +38,7 @@ internal sealed class ConsoleUx
     /// </summary>
     public bool ShouldShowEvent(Classification cls)
     {
-        // PIPELINE_PRESSURE is a system-health signal — always shown regardless of verbosity.
+        // PIPELINE_PRESSURE is a system-health signal - always shown regardless of verbosity.
         if (cls == Classification.PipelinePressure)
         {
             return true;
@@ -50,7 +50,7 @@ internal sealed class ConsoleUx
             return cls is Classification.Steal or Classification.MaybeSteal or Classification.SessionLock;
         }
         // Verbosity >= 1: + USER_* + SHELL_TRANSIENT + PREV_WINDOW_CLOSED + FOCUS_RESTORED + SAME_APP
-        // (explained / benign focus changes — nothing to act on, so kept off the default-verbosity steal view).
+        // (explained / benign focus changes - nothing to act on, so kept off the default-verbosity steal view).
         return true;
     }
 
@@ -63,7 +63,7 @@ internal sealed class ConsoleUx
         {
             var prefix = r.Classification == Classification.MaybeSteal ? "maybe " : "";
             _lastStealOneLiner = string.Create(CultureInfo.InvariantCulture,
-                $"{prefix}{string.Join(" ◄ ", BasenameChain(r))}");
+                $"{prefix}{string.Join(" <- ", BasenameChain(r))}");
             _lastStealAt = r.TimestampUtc.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
         }
         if (ShouldRenderPerEvent && ShouldShowEvent(r.Classification))
@@ -82,7 +82,7 @@ internal sealed class ConsoleUx
         var first = true;
         foreach (var n in r.ParentChain)
         {
-            if (!first) { sb.Append(" ◄ "); }
+            if (!first) { sb.Append(" <- "); }
             first = false;
             sb.Append(n.ImageBasename);
         }
@@ -120,14 +120,14 @@ internal sealed class ConsoleUx
         var droppedAtIngest = EventBus.DroppedAtIngest;
         if (droppedAtIngest > 0)
         {
-            // Pipeline shed events under buffer pressure — surface it live, not only at exit.
+            // Pipeline shed events under buffer pressure - surface it live, not only at exit.
             sb.Append(" | DROPPED ").Append(droppedAtIngest).Append(" (buffer pressure)");
         }
         if (_etwHealthProbe is { } probe && !probe())
         {
             // ETW consumer thread crashed or ProcessTrace returned a non-success status mid-run.
             // The spawn registry still self-prunes via TTL (~10 min) so the degradation is bounded,
-            // but past-exit chain recovery is now silently weaker — surface it.
+            // but past-exit chain recovery is now silently weaker - surface it.
             sb.Append(" | ETW-DEAD");
         }
         sb.Append(" | -v ").Append(_settings.Verbosity).Append(", --mode ").Append(_settings.Mode);

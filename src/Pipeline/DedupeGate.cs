@@ -15,12 +15,12 @@ namespace SpawnSpotter.Pipeline;
 ///
 /// <para>Special-case behavior, preserved exactly from the original inline implementation:</para>
 /// <list type="bullet">
-/// <item><c>windowMs &lt;= 0</c>: dedupe disabled — every event passes through, state is NOT
+/// <item><c>windowMs &lt;= 0</c>: dedupe disabled - every event passes through, state is NOT
 /// updated. Useful for diagnostic runs that want every raw event.</item>
 /// <item><c>hwnd == IntPtr.Zero</c>: always passes through. A zero handle is the "no HWND
 /// known" sentinel and cannot be meaningfully deduped (every zero would collide with every
 /// other zero). Per-source events that synthesise zero handles must always reach the sink.</item>
-/// <item>Same HWND, inside the window: rejected. <b>Reference state does not advance</b> —
+/// <item>Same HWND, inside the window: rejected. <b>Reference state does not advance</b> -
 /// a third event arriving close to the rejected second is still compared against the
 /// originally-accepted first, not the rejected second. This stops a burst from indefinitely
 /// suppressing a real follow-up.</item>
@@ -46,7 +46,7 @@ internal struct DedupeGate
     /// <param name="windowMs">Dedupe window in milliseconds. Values &lt;= 0 disable the gate.</param>
     public bool TryAccept(IntPtr hwnd, long tickMs, int windowMs)
     {
-        // windowMs <= 0 disables the gate entirely. Don't touch state — a later reconfigure to
+        // windowMs <= 0 disables the gate entirely. Don't touch state - a later reconfigure to
         // a positive window would otherwise start comparing against a stale reference.
         if (windowMs <= 0)
         {
@@ -54,13 +54,13 @@ internal struct DedupeGate
         }
 
         // A zero HWND is "no window known" and cannot collide meaningfully with itself.
-        // Always accept, but don't update reference state — we have nothing to anchor on.
+        // Always accept, but don't update reference state - we have nothing to anchor on.
         if (hwnd == IntPtr.Zero)
         {
             return true;
         }
 
-        // Same HWND, inside the window → drop. Reference state stays pinned to the
+        // Same HWND, inside the window -> drop. Reference state stays pinned to the
         // previously-accepted event, so a burst of duplicates can't roll the window forward.
         if (hwnd == _lastHwnd && tickMs - _lastTickMs <= windowMs)
         {

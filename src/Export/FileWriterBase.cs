@@ -6,7 +6,7 @@ namespace SpawnSpotter.Export;
 /// <summary>
 /// Shared file plumbing for line-oriented exporters: open with
 /// <c>FileShare.Read | FileShare.Delete</c>, append mode, UTF-8 no BOM, header on file create,
-/// flush after every event. Implements UTC day rollover — on the first write after midnight
+/// flush after every event. Implements UTC day rollover - on the first write after midnight
 /// UTC, the current file is closed and a new <c>spawnspotter-YYYY-MM-DD.&lt;ext&gt;</c> is opened
 /// in the same base directory, with the format-specific header re-emitted on the new file.
 /// </summary>
@@ -27,7 +27,7 @@ internal abstract class FileWriterBase : IEventExporter
     /// <param name="baseDir">Directory containing daily files (already created).</param>
     /// <param name="extension">File extension without leading dot (e.g. <c>"csv"</c>).</param>
     /// <param name="headerLineIfFreshFile">Optional header emitted whenever a NEW file is
-    /// created — both on initial open and on every UTC day rollover.</param>
+    /// created - both on initial open and on every UTC day rollover.</param>
     /// <param name="utcNow">Clock injection seam (default <see cref="DateTime.UtcNow"/>). Tests
     /// override this to simulate the day boundary without touching the system clock.</param>
     protected FileWriterBase(string baseDir, string extension, string? headerLineIfFreshFile = null, Func<DateTime>? utcNow = null)
@@ -85,7 +85,7 @@ internal abstract class FileWriterBase : IEventExporter
         _openUtcDate = nowDate;
     }
 
-    /// <summary>Exposed for tests only — the open file's UTC date.</summary>
+    /// <summary>Exposed for tests only - the open file's UTC date.</summary>
     internal DateTime CurrentOpenUtcDate => _openUtcDate;
 
     protected abstract void WriteRecord(TextWriter writer, EventRecord record);
