@@ -49,8 +49,8 @@ internal sealed class ConsoleUx
         {
             return cls is Classification.Steal or Classification.MaybeSteal or Classification.SessionLock;
         }
-        // Verbosity >= 1: + USER_* + SHELL_TRANSIENT + PREV_WINDOW_CLOSED (explained / benign
-        // focus changes — nothing to act on, so kept off the default-verbosity steal view).
+        // Verbosity >= 1: + USER_* + SHELL_TRANSIENT + PREV_WINDOW_CLOSED + FOCUS_RESTORED + SAME_APP
+        // (explained / benign focus changes — nothing to act on, so kept off the default-verbosity steal view).
         return true;
     }
 

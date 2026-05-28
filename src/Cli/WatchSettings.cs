@@ -30,7 +30,7 @@ public sealed class WatchSettings : CommandSettings
     public int? MaxSteals { get; init; }
 
     [CommandOption("-v|--verbosity <LEVEL>")]
-    [Description("Verbosity 0..2. 0=STEAL+MAYBE_STEAL+SESSION_LOCK, 1=+USER_*+SHELL_TRANSIENT+PREV_WINDOW_CLOSED, 2=+diagnostics. Default: 0")]
+    [Description("Verbosity 0..2. 0=STEAL+MAYBE_STEAL+SESSION_LOCK, 1=+USER_*+SHELL_TRANSIENT+PREV_WINDOW_CLOSED+FOCUS_RESTORED+SAME_APP, 2=+diagnostics. Default: 0")]
     public int Verbosity { get; init; } = 0;
 
     [CommandOption("--threshold-ms <INT>")]
