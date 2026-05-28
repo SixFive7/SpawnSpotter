@@ -48,26 +48,9 @@ internal static class EventBus
         var pipeline = s_pipeline;
         if (pipeline is null) { return false; }
 
-        var tickMs = Environment.TickCount64;
-        var wallUtc = DateTime.UtcNow;
-
-        if (osTime32 != 0)
-        {
-            // Reconstruct the OS event time as a 64-bit tick by subtracting the delta from
-            // our callback time. Both Environment.TickCount64 and the OS-provided 32-bit time
-            // come from the same Windows tick clock; the 32-bit value is the low 32 bits of
-            // TickCount64 at the OS event moment. Unsigned subtraction handles wrap-around
-            // (49.7 day cycle for 32-bit ticks).
-            var now32 = unchecked((uint)tickMs);
-            var rollbackMs = unchecked(now32 - osTime32);
-            // Defensive: rollback should be small (µs to a few ms). If it's huge, something is
-            // wrong (e.g., osTime32 came from a different clock); ignore it.
-            if (rollbackMs <= 10_000)  // 10 s cap; way larger than any plausible scheduling delay
-            {
-                tickMs -= rollbackMs;
-                wallUtc = wallUtc.AddMilliseconds(-(double)rollbackMs);
-            }
-        }
+        var nowTickMs = Environment.TickCount64;
+        var nowUtc = DateTime.UtcNow;
+        var (tickMs, wallUtc) = AdjustForOsTime(nowTickMs, nowUtc, osTime32);
 
         var ev = new RawHookEvent(
             Seq: Interlocked.Increment(ref s_nextSeq),
@@ -84,5 +67,57 @@ internal static class EventBus
             return false;
         }
         return true;
+    }
+
+    /// <summary>
+    /// Reconstruct the OS event time as a 64-bit tick (and the parallel wall-clock UTC) by
+    /// subtracting the rollback delta from our callback sample. The OS gives us the low 32 bits
+    /// of the system tick at the moment IT observed the event; we sampled
+    /// <see cref="Environment.TickCount64"/> later, in our hook callback. Unsigned subtraction
+    /// on the 32-bit values handles the 49.7-day wrap of the 32-bit tick clock automatically.
+    ///
+    /// <para>Pure function — no static state read or written. Lifted out of <see cref="Post"/>
+    /// so the math can be unit-tested without standing up a pipeline.</para>
+    ///
+    /// <para>Special cases:</para>
+    /// <list type="bullet">
+    /// <item><c>osTime32 == 0</c>: no OS timestamp available → identity (caller's sample wins).</item>
+    /// <item>Rollback &gt; 10_000 ms: implausible (either a different clock source or a 32-bit
+    /// wrap mis-aligned with our 64-bit sample). The check is inclusive at the 10_000 boundary
+    /// (rollback ≤ 10000 accepts). Treat as identity rather than silently teleporting events
+    /// thousands of milliseconds into the past.</item>
+    /// <item>Underflow from <c>osTime32 &gt; now32</c> (legit a few ms ahead — e.g. clock skew
+    /// between callback dispatch and sample): unsigned subtraction yields a huge number, which
+    /// the 10_000 cap rejects, so we fall back to identity.</item>
+    /// </list>
+    /// </summary>
+    /// <param name="nowTickMs">Caller's <see cref="Environment.TickCount64"/> sample.</param>
+    /// <param name="nowUtc">Caller's <see cref="DateTime.UtcNow"/> sample, paired with
+    /// <paramref name="nowTickMs"/> for the wall-clock rollback.</param>
+    /// <param name="osTime32">OS-reported 32-bit event tick (KBDLLHOOKSTRUCT.time /
+    /// MSLLHOOKSTRUCT.time / dwmsEventTime). Zero means "not provided".</param>
+    internal static (long tickMs, DateTime wallUtc) AdjustForOsTime(long nowTickMs, DateTime nowUtc, uint osTime32)
+    {
+        if (osTime32 == 0)
+        {
+            return (nowTickMs, nowUtc);
+        }
+
+        // Both Environment.TickCount64 and the OS-provided 32-bit time come from the same
+        // Windows tick clock; the 32-bit value is the low 32 bits of TickCount64 at the OS
+        // event moment. Unsigned subtraction handles the 49.7-day wrap cleanly.
+        var now32 = unchecked((uint)nowTickMs);
+        var rollbackMs = unchecked(now32 - osTime32);
+
+        // Defensive cap: rollback should be small (µs to a few ms in practice). 10 s is way
+        // larger than any plausible scheduling delay; anything past that is a sign of mis-
+        // alignment we should not trust. Inclusive at the boundary (matches the original
+        // inline implementation).
+        if (rollbackMs > 10_000)
+        {
+            return (nowTickMs, nowUtc);
+        }
+
+        return (nowTickMs - rollbackMs, nowUtc.AddMilliseconds(-(double)rollbackMs));
     }
 }
