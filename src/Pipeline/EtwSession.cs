@@ -31,6 +31,18 @@ internal sealed unsafe class EtwSession : IDisposable
     /// <summary>Kernel-assigned trace handle. Valid only after <see cref="Start"/> succeeded.</summary>
     public ulong TraceHandle => _traceHandle;
 
+    /// <summary>
+    /// Kernel-side drop counters, populated by <see cref="Stop"/> from the
+    /// EVENT_TRACE_PROPERTIES OUT fields. Zero until Stop runs.
+    ///
+    /// <para><c>EventsLost</c>: events the kernel dropped because the real-time consumer (us)
+    /// could not keep up. <c>RealTimeBuffersLost</c>: entire kernel buffers dropped under the same
+    /// pressure. <c>LogBuffersLost</c>: buffers lost from session resource limits.</para>
+    /// </summary>
+    public uint EventsLost { get; private set; }
+    public uint RealTimeBuffersLost { get; private set; }
+    public uint LogBuffersLost { get; private set; }
+
     private ulong _traceHandle;
     private IntPtr _propertiesBuffer;     // owns the EVENT_TRACE_PROPERTIES + trailing name allocation
     private int _propertiesBufferSize;
@@ -155,7 +167,14 @@ internal sealed unsafe class EtwSession : IDisposable
         {
             Console.Error.WriteLine(
                 $"[ETW] ControlTraceW(STOP) returned 0x{code:X} ({FormatEtwError(code)}) for session '{SessionName}'. Session may be leaked - clean up with: logman stop \"{SessionName}\" -ets");
+            return;
         }
+        // On a successful stop, the kernel populates the EVENT_TRACE_PROPERTIES OUT fields. Snapshot
+        // them now - the buffer is freed in Stop()'s finally and we want the counters available to
+        // the exit summary regardless of which Stop / Dispose path ran us.
+        EventsLost = props->EventsLost;
+        RealTimeBuffersLost = props->RealTimeBuffersLost;
+        LogBuffersLost = props->LogBuffersLost;
     }
 
     /// <summary>

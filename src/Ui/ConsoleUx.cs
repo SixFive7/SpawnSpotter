@@ -135,7 +135,7 @@ internal sealed class ConsoleUx
         return sb.ToString();
     }
 
-    public string BuildExitSummary(string logDir)
+    public string BuildExitSummary(string logDir, EtwDropStats etwStats = default)
     {
         var elapsed = DateTime.UtcNow - _startedAtUtc;
         var shell = _counters.ShellTransient > 0 ? $" SHELL_TRANSIENT={_counters.ShellTransient}" : "";
@@ -148,7 +148,27 @@ internal sealed class ConsoleUx
         var etwDead = _etwHealthProbe is { } probe && !probe()
             ? " ETW spawn-attribution went offline during run."
             : "";
+
+        // -v 2 only: surface ETW kernel-side drop counters when non-zero. These are distinct from
+        // dropped_at_ingest (which is our own ring buffer shedding under load); EventsLost /
+        // RealTimeBuffersLost mean the kernel dropped data before it ever reached us, usually due
+        // to consumer-side starvation under heavy spawn activity. Forensic users don't need this -
+        // the steal classifications above are the actionable signal - but operators diagnosing
+        // the tool's health on a busy box do.
+        var diag = "";
+        if (_settings.Verbosity >= 2 && (etwStats.EventsLost > 0 || etwStats.RealTimeBuffersLost > 0 || etwStats.LogBuffersLost > 0))
+        {
+            diag = string.Create(CultureInfo.InvariantCulture,
+                $" [diag etw_events_lost={etwStats.EventsLost} etw_realtime_buffers_lost={etwStats.RealTimeBuffersLost} etw_log_buffers_lost={etwStats.LogBuffersLost}]");
+        }
+
         return string.Create(CultureInfo.InvariantCulture,
-            $"Ran {elapsed:hh\\:mm\\:ss}. Logged STEAL={_counters.Steal} MAYBE_STEAL={_counters.MaybeSteal} SESSION_LOCK={_counters.SessionLock} USER_ALT_TAB={_counters.UserAltTab} USER_CLICK={_counters.UserClick} USER_OTHER={_counters.UserOther}{shell}{prevClosed}{focusRestored}{sameApp}{pressure}{dropped}.{etwDead} Files: {logDir}");
+            $"Ran {elapsed:hh\\:mm\\:ss}. Logged STEAL={_counters.Steal} MAYBE_STEAL={_counters.MaybeSteal} SESSION_LOCK={_counters.SessionLock} USER_ALT_TAB={_counters.UserAltTab} USER_CLICK={_counters.UserClick} USER_OTHER={_counters.UserOther}{shell}{prevClosed}{focusRestored}{sameApp}{pressure}{dropped}{diag}.{etwDead} Files: {logDir}");
     }
 }
+
+/// <summary>
+/// Snapshot of kernel-side ETW drop counters at session stop. Default-zero so callers (and tests)
+/// that don't care about ETW health get a clean no-op.
+/// </summary>
+public readonly record struct EtwDropStats(uint EventsLost, uint RealTimeBuffersLost, uint LogBuffersLost);

@@ -364,7 +364,12 @@ public sealed class Runner(WatchSettings settings)
             }
 
             // ---------------- Exit summary (always) ----------------
-            System.Console.WriteLine(ux.BuildExitSummary(logDir));
+            // Snapshot ETW drop counters AFTER etwSession.Stop() ran above - the kernel populates
+            // the OUT fields of EVENT_TRACE_PROPERTIES on ControlTrace(STOP). Surfaces only at -v 2.
+            var etwStats = etwSession is not null
+                ? new EtwDropStats(etwSession.EventsLost, etwSession.RealTimeBuffersLost, etwSession.LogBuffersLost)
+                : default;
+            System.Console.WriteLine(ux.BuildExitSummary(logDir, etwStats));
 
             if (exporterFailed)
             {

@@ -54,4 +54,34 @@ public class ConsoleUxTests
         await Assert.That(Ux(1).ShouldShowDiagnostic()).IsFalse();
         await Assert.That(Ux(2).ShouldShowDiagnostic()).IsTrue();
     }
+
+    [Test]
+    public async Task ExitSummary_OmitsEtwDropDiagBelowVerbosity2()
+    {
+        // ETW dropped 99 events but verbosity is 0 - forensic users shouldn't see this; only
+        // operators diagnosing the tool care about kernel-side drops.
+        var stats = new EtwDropStats(EventsLost: 99, RealTimeBuffersLost: 1, LogBuffersLost: 0);
+        var line0 = Ux(0).BuildExitSummary("X:\\logs", stats);
+        var line1 = Ux(1).BuildExitSummary("X:\\logs", stats);
+        await Assert.That(line0).DoesNotContain("etw_events_lost");
+        await Assert.That(line1).DoesNotContain("etw_events_lost");
+    }
+
+    [Test]
+    public async Task ExitSummary_IncludesEtwDropDiagAtVerbosity2_WhenNonZero()
+    {
+        var stats = new EtwDropStats(EventsLost: 99, RealTimeBuffersLost: 1, LogBuffersLost: 0);
+        var line = Ux(2).BuildExitSummary("X:\\logs", stats);
+        await Assert.That(line).Contains("etw_events_lost=99");
+        await Assert.That(line).Contains("etw_realtime_buffers_lost=1");
+        await Assert.That(line).Contains("etw_log_buffers_lost=0");
+    }
+
+    [Test]
+    public async Task ExitSummary_OmitsEtwDropDiag_WhenAllZero_EvenAtVerbosity2()
+    {
+        // No drops, no diag - keep the summary lean for clean runs.
+        var line = Ux(2).BuildExitSummary("X:\\logs", default);
+        await Assert.That(line).DoesNotContain("etw_events_lost");
+    }
 }
