@@ -51,6 +51,9 @@ jobs:
             Write-Output "VS Installer not at expected path; relying on runner defaults"
           }
 
+      - name: Restore
+        run: dotnet restore SpawnSpotter.slnx
+
       - name: Print resolved version (MinVer)
         shell: pwsh
         run: |
@@ -58,9 +61,6 @@ jobs:
             -t:MinVer `
             -p:Configuration=Release `
             -getProperty:MinVerVersion,Version,AssemblyVersion,FileVersion,InformationalVersion
-
-      - name: Restore
-        run: dotnet restore SpawnSpotter.slnx
 
       - name: Test
         run: dotnet test SpawnSpotter.slnx --no-restore --configuration Release
