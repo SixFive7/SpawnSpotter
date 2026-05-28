@@ -318,23 +318,25 @@ public sealed class Runner(WatchSettings settings)
                 try { if (statusTask is not null) await statusTask.ConfigureAwait(false); } catch { }
             }
 
-            // ---------------- HTML report (always written on graceful shutdown) ----------------
-            try
+            // ---------------- HTML report (written on graceful shutdown when `html` is in --format) ----------------
+            if (includeHtml)
             {
-                var jsonlPath = LogDirectory.DailyPath(logDir, "jsonl");
-                var htmlPath = LogDirectory.DailyPath(logDir, "html");
-                var snapshot = new List<EventRecord>(inMemoryAll);
-                await HtmlReportWriter.WriteAsync(htmlPath, snapshot, File.Exists(jsonlPath) ? jsonlPath : null);
-            }
-            catch (Exception ex)
-            {
-                System.Console.Error.WriteLine($"HTML report write failed: {ex.Message}");
+                try
+                {
+                    var jsonlPath = LogDirectory.DailyPath(logDir, "jsonl");
+                    var htmlPath = LogDirectory.DailyPath(logDir, "html");
+                    var snapshot = new List<EventRecord>(inMemoryAll);
+                    await HtmlReportWriter.WriteAsync(htmlPath, snapshot, File.Exists(jsonlPath) ? jsonlPath : null);
+                }
+                catch (Exception ex)
+                {
+                    System.Console.Error.WriteLine($"HTML report write failed: {ex.Message}");
+                }
             }
 
             // ---------------- Exit summary (always) ----------------
             System.Console.WriteLine(ux.BuildExitSummary(logDir));
 
-            _ = includeHtml;
             return 0;
         }
         finally
