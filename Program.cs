@@ -9,12 +9,20 @@ internal static class Program
 {
     // Spectre.Console.Cli 0.55 marks CommandApp with [RequiresDynamicCode] as a blanket warning,
     // but the surface we use (attribute-decorated CommandSettings classes with strongly-typed properties)
-    // does not trigger reflection paths that fail under Native AOT — see plan §3, risk #490.
+    // does not trigger reflection paths that fail under Native AOT.
     // Verified manually by AOT-publishing and running --help / version / watch --help.
     [UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
         Justification = "Verified at AOT publish time; commands use strongly-typed CommandSettings only.")]
     public static int Main(string[] args)
     {
+        // Force the console to emit UTF-8 so the chain-arrow glyphs (◄ U+25C4 / ► U+25BA)
+        // produced by ConsoleUx and RecordFormatting render correctly. Right-click "Run as
+        // administrator" launches a fresh conhost with the legacy OEM code page (typically
+        // CP437 / CP1252), where these chars degrade to '?'. UTF-8 is a built-in encoding so
+        // this is safe under InvariantGlobalization=true + Native AOT. Done before the admin
+        // precheck so even our error output renders the way we expect.
+        System.Console.OutputEncoding = System.Text.Encoding.UTF8;
+
         // Defensive admin check. app.manifest requests requireAdministrator so the OS-level
         // UAC prompt already happened before Main runs; if we land here without elevation it
         // means someone stripped the manifest or used a development build path that bypasses
@@ -37,11 +45,11 @@ internal static class Program
             config.AddCommand<VersionCommand>("version")
                   .WithDescription("Print version and exit.");
 
-            // Plan section 5.8 exit codes:
-            //   0  - graceful shutdown
-            //   1  - startup error (hooks failed)
-            //   2  - bad CLI args
-            //   non-zero - unhandled exception
+            // Exit codes:
+            //   0        - graceful shutdown
+            //   1        - startup error (hooks/ETW failed, or non-elevated launch)
+            //   2        - bad CLI args
+            //   64       - unhandled exception (chosen to be visually distinct from 0/1/2)
             config.SetExceptionHandler((ex, _) =>
             {
                 Console.Error.WriteLine(ex.Message);
@@ -54,7 +62,7 @@ internal static class Program
             });
         });
 
-        // Bare invocation (no args) prints help and exits 0 — per plan §5.9 / decision #13.
+        // Bare invocation (no args) prints help and exits 0.
         if (args.Length == 0)
         {
             return app.Run(["--help"]);
