@@ -19,7 +19,11 @@ public sealed record EventRecord(
     IntPtr LockedHwndBefore,
     uint LockedPidBefore,
     string Note,
-    uint FocusedSessionId = 0);
+    uint FocusedSessionId = 0,
+    // HMONITOR of the monitor the focused window is on. Opaque pointer; same value across two
+    // events means they happened on the same physical monitor (within one process run).
+    // IntPtr.Zero = off-screen or query failed.
+    IntPtr FocusedHmonitor = default);
 
 /// <summary>
 /// One node of the parent-process chain.

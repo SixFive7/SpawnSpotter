@@ -50,6 +50,7 @@ internal sealed class JsonlExporter : FileWriterBase
             WindowTitle = r.WindowTitle,
             FocusedPid = r.FocusedPid,
             FocusedSessionId = r.FocusedSessionId,
+            Hmonitor = r.FocusedHmonitor == IntPtr.Zero ? null : RecordFormatting.HwndHex(r.FocusedHmonitor),
             ParentChain = nodes,
             KeyAgeMs = r.KeyAgeMs,
             MouseAgeMs = r.MouseAgeMs,

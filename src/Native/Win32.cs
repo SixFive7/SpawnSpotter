@@ -93,6 +93,18 @@ internal static partial class Win32
     [LibraryImport("user32.dll", EntryPoint = "GetWindow", SetLastError = false)]
     public static partial IntPtr GetWindow(IntPtr hWnd, uint uCmd);
 
+    /// <summary>
+    /// Returns the HMONITOR of the monitor the given window is primarily on. Documented +
+    /// stable across all Windows versions; opaque pointer value is meaningful within a single
+    /// process run (lets the analyst correlate "these N events were on the same monitor").
+    /// With MONITOR_DEFAULTTONULL, returns IntPtr.Zero if the window is off-screen.
+    /// </summary>
+    [LibraryImport("user32.dll", EntryPoint = "MonitorFromWindow", SetLastError = false)]
+    public static partial IntPtr MonitorFromWindow(IntPtr hWnd, uint dwFlags);
+
+    /// <summary>MONITOR_DEFAULTTONULL - return NULL for off-screen windows instead of nearest monitor.</summary>
+    public const uint MONITOR_DEFAULTTONULL = 0;
+
     public const int GWL_STYLE = -16;
 
     /// <summary>

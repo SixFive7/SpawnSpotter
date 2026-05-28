@@ -654,6 +654,12 @@ internal sealed class EnrichmentPipeline
         // via the empty ParentChain.
         var focusedSessionId = ev.AncestorChain.Count > 0 ? ev.AncestorChain[0].SessionId : 0u;
 
+        // HMONITOR of the monitor that owns the focused window. Opaque pointer; same value
+        // across events means same physical monitor within one process run. MONITOR_DEFAULTTONULL
+        // returns Zero for off-screen windows so the consumer can distinguish "no monitor" from
+        // "monitor 0x..." cleanly.
+        var focusedHmonitor = ev.Hwnd == IntPtr.Zero ? IntPtr.Zero : Win32.MonitorFromWindow(ev.Hwnd, Win32.MONITOR_DEFAULTTONULL);
+
         var record = new EventRecord(
             TimestampUtc: ev.WallUtc,
             Classification: result.Classification,
@@ -669,7 +675,8 @@ internal sealed class EnrichmentPipeline
             LockedHwndBefore: result.LockedHwndBefore,
             LockedPidBefore: result.LockedPidBefore,
             Note: result.Note,
-            FocusedSessionId: focusedSessionId);
+            FocusedSessionId: focusedSessionId,
+            FocusedHmonitor: focusedHmonitor);
 
         // Apply bookkeeping (locked-anchor updates / clears).
         if (result.ClearLockedAnchor)

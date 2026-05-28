@@ -101,6 +101,43 @@ public class ExporterRoundtripTests
     }
 
     [Test]
+    public async Task Jsonl_EmitsHmonitorAsHex_WhenSet()
+    {
+        var dir = TempDir();
+        try
+        {
+            // FocusedHmonitor as opaque IntPtr. Value should appear as "0x..." in the JSONL.
+            var rec = SampleRecord() with { FocusedHmonitor = (IntPtr)0xC0FFEE };
+            await using (var ex = new JsonlExporter(dir))
+            {
+                await ex.WriteAsync(rec);
+            }
+            var text = await File.ReadAllTextAsync(LogDirectory.DailyPath(dir, "jsonl"));
+            await Assert.That(text).Contains("\"hmonitor\":\"0xC0FFEE\"");
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Test]
+    public async Task Jsonl_OmitsHmonitor_WhenZero()
+    {
+        // Zero HMONITOR means "off-screen / unavailable" and should be omitted from the JSON
+        // entirely (JsonIgnoreCondition.WhenWritingNull) so the consumer can distinguish "no
+        // monitor info" from "monitor 0x0".
+        var dir = TempDir();
+        try
+        {
+            await using (var ex = new JsonlExporter(dir))
+            {
+                await ex.WriteAsync(SampleRecord()); // FocusedHmonitor defaults to IntPtr.Zero
+            }
+            var text = await File.ReadAllTextAsync(LogDirectory.DailyPath(dir, "jsonl"));
+            await Assert.That(text).DoesNotContain("\"hmonitor\"");
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Test]
     public async Task Jsonl_EmitsFocusedSessionIdAndPerChainNodeSessionId()
     {
         var dir = TempDir();

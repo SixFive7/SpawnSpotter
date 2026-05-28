@@ -15,6 +15,10 @@ public sealed class JsonEvent
     [JsonPropertyName("focused_pid")] public uint FocusedPid { get; init; }
     // 0 = Services session; 1+ = interactive (console / RDP). Useful for multi-session forensics.
     [JsonPropertyName("focused_session_id")] public uint FocusedSessionId { get; init; }
+    // Hex HMONITOR ("0x..."); omitted from JSON when null (window was off-screen or query failed).
+    [JsonPropertyName("hmonitor")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Hmonitor { get; init; }
     [JsonPropertyName("parent_chain")] public List<JsonChainNode> ParentChain { get; init; } = [];
     [JsonPropertyName("key_age_ms")] public long KeyAgeMs { get; init; }
     [JsonPropertyName("mouse_age_ms")] public long MouseAgeMs { get; init; }
