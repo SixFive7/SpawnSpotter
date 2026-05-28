@@ -13,6 +13,8 @@ public sealed class JsonEvent
     [JsonPropertyName("window_class")] public string WindowClass { get; init; } = string.Empty;
     [JsonPropertyName("window_title")] public string WindowTitle { get; init; } = string.Empty;
     [JsonPropertyName("focused_pid")] public uint FocusedPid { get; init; }
+    // 0 = Services session; 1+ = interactive (console / RDP). Useful for multi-session forensics.
+    [JsonPropertyName("focused_session_id")] public uint FocusedSessionId { get; init; }
     [JsonPropertyName("parent_chain")] public List<JsonChainNode> ParentChain { get; init; } = [];
     [JsonPropertyName("key_age_ms")] public long KeyAgeMs { get; init; }
     [JsonPropertyName("mouse_age_ms")] public long MouseAgeMs { get; init; }
@@ -25,6 +27,7 @@ public sealed class JsonEvent
 public sealed class JsonChainNode
 {
     [JsonPropertyName("pid")] public uint Pid { get; init; }
+    [JsonPropertyName("session_id")] public uint SessionId { get; init; }
     [JsonPropertyName("image_path")] public string ImagePath { get; init; } = string.Empty;
     [JsonPropertyName("basename")] public string Basename { get; init; } = string.Empty;
     [JsonPropertyName("command_line")] public string CommandLine { get; init; } = string.Empty;

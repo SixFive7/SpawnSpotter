@@ -11,7 +11,7 @@ internal sealed class CsvExporter : FileWriterBase
     public override string Format => "csv";
 
     private const string Header =
-        "timestamp_utc,classification,monitored_via,hwnd,window_class,window_title,focused_pid,parent_chain,key_age_ms,mouse_age_ms,idle_time_ms,locked_hwnd_before,locked_pid_before,note";
+        "timestamp_utc,classification,monitored_via,hwnd,window_class,window_title,focused_pid,focused_session_id,parent_chain,key_age_ms,mouse_age_ms,idle_time_ms,locked_hwnd_before,locked_pid_before,note";
 
     public CsvExporter(string baseDir, Func<DateTime>? utcNow = null)
         : base(baseDir, "csv", headerLineIfFreshFile: Header, utcNow: utcNow) { }
@@ -26,6 +26,7 @@ internal sealed class CsvExporter : FileWriterBase
         sb.Append(RecordFormatting.CsvField(r.WindowClass)).Append(',');
         sb.Append(RecordFormatting.CsvField(r.WindowTitle)).Append(',');
         sb.Append(r.FocusedPid).Append(',');
+        sb.Append(r.FocusedSessionId).Append(',');
         sb.Append(RecordFormatting.CsvField(RecordFormatting.ChainBasenamesArrowed(r.ParentChain))).Append(',');
         sb.Append(r.KeyAgeMs).Append(',');
         sb.Append(r.MouseAgeMs).Append(',');

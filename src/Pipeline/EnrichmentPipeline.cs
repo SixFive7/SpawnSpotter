@@ -436,7 +436,8 @@ internal sealed class EnrichmentPipeline
                 PackageAumi: rec.PackageAumi,
                 Environment: rec.Environment,
                 ParentPid: rec.ParentPid,
-                Note: rec.Note));
+                Note: rec.Note,
+                SessionId: rec.SessionId));
             seen.Add(rec.Pid);
             nextPid = rec.ParentPid;
         }
@@ -450,7 +451,8 @@ internal sealed class EnrichmentPipeline
         CurrentDirectory: r.CurrentDirectory,
         PackageAumi: r.PackageAumi,
         ParentPid: r.ParentPid,
-        Note: r.Note);
+        Note: r.Note,
+        SessionId: r.SessionId);
 
     private static ChainNode ToNode(ProcessSnapshot s) => new(
         Pid: s.Pid,
@@ -461,7 +463,8 @@ internal sealed class EnrichmentPipeline
         PackageAumi: s.PackageAumi,
         Environment: null,
         ParentPid: s.ParentPid,
-        Note: s.Note);
+        Note: s.Note,
+        SessionId: s.SessionId);
 
     private static unsafe string ReadClassName(IntPtr hwnd)
     {
@@ -630,6 +633,12 @@ internal sealed class EnrichmentPipeline
                    : (mouseAgeMs == -1) ? keyAgeMs
                    : Math.Min(keyAgeMs, mouseAgeMs);
 
+        // FocusedSessionId comes from the first chain node (the focused process itself). If the
+        // chain is empty (PID died before we could read it) we default to 0, which collides with
+        // the Services session but is the right "unknown" sentinel - the analyst can disambiguate
+        // via the empty ParentChain.
+        var focusedSessionId = ev.AncestorChain.Count > 0 ? ev.AncestorChain[0].SessionId : 0u;
+
         var record = new EventRecord(
             TimestampUtc: ev.WallUtc,
             Classification: result.Classification,
@@ -644,7 +653,8 @@ internal sealed class EnrichmentPipeline
             IdleTimeMs: idleMs,
             LockedHwndBefore: result.LockedHwndBefore,
             LockedPidBefore: result.LockedPidBefore,
-            Note: result.Note);
+            Note: result.Note,
+            FocusedSessionId: focusedSessionId);
 
         // Apply bookkeeping (locked-anchor updates / clears).
         if (result.ClearLockedAnchor)

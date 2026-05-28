@@ -21,6 +21,7 @@ internal static unsafe class ProcessReader
         public string CurrentDirectory = string.Empty;
         public string? PackageAumi;
         public uint ParentPid;
+        public uint SessionId; // 0 = Services session; 1+ = interactive (RDP/console)
         public Dictionary<string, string>? Environment;
         public string? Note;
     }
@@ -77,6 +78,11 @@ internal static unsafe class ProcessReader
         var bitness = QueryBitness(hProc);
         var (parentPid, pebAddr) = QueryBasicInfo(hProc, bitness == Bitness.Wow64);
         rec.ParentPid = parentPid;
+
+        // 3b) Session ID via NtQueryInformationProcess class 24. PROCESS_QUERY_LIMITED_INFORMATION
+        // is sufficient; the call is a single ULONG read so cost is negligible. Useful for
+        // RDP / multi-session forensic disambiguation (which session was the focus-stealer in?).
+        rec.SessionId = QuerySessionId(hProc);
 
         // 4) UWP AUMI fallback if cmdline empty or under SystemApps/WindowsApps.
         if (string.IsNullOrEmpty(rec.CommandLine)
@@ -189,6 +195,15 @@ internal static unsafe class ProcessReader
         {
             ArrayPool<char>.Shared.Return(buf);
         }
+    }
+
+    private static uint QuerySessionId(IntPtr hProc)
+    {
+        // PROCESS_SESSION_INFORMATION is a single ULONG; allocate on the stack and reinterpret.
+        uint sessionId = 0;
+        var status = Win32.NtQueryInformationProcess(hProc, Win32Const.ProcessSessionInformation,
+            (IntPtr)(&sessionId), sizeof(uint), out _);
+        return status == 0 ? sessionId : 0;
     }
 
     private static (uint parentPid, ulong pebAddr) QueryBasicInfo(IntPtr hProc, bool isWow64)

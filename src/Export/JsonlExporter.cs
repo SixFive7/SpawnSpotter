@@ -29,6 +29,7 @@ internal sealed class JsonlExporter : FileWriterBase
             nodes.Add(new JsonChainNode
             {
                 Pid = n.Pid,
+                SessionId = n.SessionId,
                 ImagePath = n.ImagePath,
                 Basename = n.ImageBasename,
                 CommandLine = n.CommandLine,
@@ -48,6 +49,7 @@ internal sealed class JsonlExporter : FileWriterBase
             WindowClass = r.WindowClass,
             WindowTitle = r.WindowTitle,
             FocusedPid = r.FocusedPid,
+            FocusedSessionId = r.FocusedSessionId,
             ParentChain = nodes,
             KeyAgeMs = r.KeyAgeMs,
             MouseAgeMs = r.MouseAgeMs,

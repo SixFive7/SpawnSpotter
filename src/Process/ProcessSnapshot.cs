@@ -12,4 +12,5 @@ public readonly record struct ProcessSnapshot(
     string CurrentDirectory,
     string? PackageAumi,
     uint ParentPid,
-    string? Note);
+    string? Note,
+    uint SessionId = 0);

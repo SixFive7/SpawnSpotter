@@ -18,7 +18,8 @@ public sealed record EventRecord(
     long IdleTimeMs,
     IntPtr LockedHwndBefore,
     uint LockedPidBefore,
-    string Note);
+    string Note,
+    uint FocusedSessionId = 0);
 
 /// <summary>
 /// One node of the parent-process chain.
@@ -32,5 +33,6 @@ public sealed record ChainNode(
     string? PackageAumi,
     IReadOnlyDictionary<string, string>? Environment,
     uint ParentPid,
-    string? Note);
+    string? Note,
+    uint SessionId = 0);
 

@@ -73,6 +73,7 @@ internal static class Win32Const
 
     // NtQueryInformationProcess classes
     public const int ProcessBasicInformation = 0;
+    public const int ProcessSessionInformation = 24; // returns PROCESS_SESSION_INFORMATION { ULONG SessionId; }
     public const int ProcessCommandLineInformation = 60;
 }
 
