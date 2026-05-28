@@ -64,12 +64,14 @@ internal sealed class EnrichmentPipeline
 
     // ---- Sink-only mutable state (single-threaded thanks to MaxDegreeOfParallelism = 1) ----
 
-    // Locked-anchor + dedupe
+    // Locked-anchor
     private IntPtr _lockedHwnd;
     private uint _lockedPid;
     private long _lockedAtTickMs;
-    private IntPtr _lastHwnd;
-    private long _lastTickMs;
+
+    // Cross-source same-HWND dedupe. Extracted to DedupeGate so the rule can be tested in
+    // isolation; the gate keeps its own (lastHwnd, lastTickMs) pair internally.
+    private DedupeGate _dedupe;
 
     // The window that currently holds the foreground — i.e. the "previous foreground" from the
     // perspective of the NEXT window event. If it has been destroyed by the time the next
@@ -102,7 +104,10 @@ internal sealed class EnrichmentPipeline
         _stats = stats;
         _spawnRegistry = spawnRegistry;
 
-        // Seed the locked anchor from the current foreground window (plan 5.5 startup init).
+        // Seed the locked anchor from the current foreground window. Before any USER_* event is
+        // seen, the classifier needs *some* "this is what you were looking at" handle to report
+        // as LockedHwndBefore; without seeding, the very first focus change would have nothing
+        // to compare against.
         _lockedHwnd = Win32.GetForegroundWindow();
         Win32.GetWindowThreadProcessId(_lockedHwnd, out _lockedPid);
         _lockedAtTickMs = Environment.TickCount64;
@@ -529,17 +534,15 @@ internal sealed class EnrichmentPipeline
 
     private void HandleWindowEvent(EnrichedEvent ev)
     {
-        // Cross-source dedupe (plan 5.2): same HWND within the window, drop.
-        if (_dedupeWindowMs > 0
-            && ev.Hwnd == _lastHwnd
-            && ev.TickMs - _lastTickMs <= _dedupeWindowMs
-            && ev.Hwnd != IntPtr.Zero)
+        // Cross-source dedupe: when multiple WinEvent hooks (foreground / object-show /
+        // object-focus) fire for the same HWND within a short window, only the first should
+        // reach the classifier. See <see cref="DedupeGate"/> for the exact rules (zero-HWND
+        // pass-through, window=0 disables, etc.).
+        if (!_dedupe.TryAccept(ev.Hwnd, ev.TickMs, _dedupeWindowMs))
         {
             _onDiagnostic?.Invoke(BuildDiagnosticRecord(ev, "dedupe drop"));
             return;
         }
-        _lastHwnd = ev.Hwnd;
-        _lastTickMs = ev.TickMs;
 
         var focusedImageBasename = ev.FocusedSnapshot?.ImageBasename ?? string.Empty;
         var focusedImagePath = ev.FocusedSnapshot?.ImagePath ?? string.Empty;
