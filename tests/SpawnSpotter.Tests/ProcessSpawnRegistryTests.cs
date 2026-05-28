@@ -15,11 +15,12 @@ public class ProcessSpawnRegistryTests
     public async Task Start_Then_Lookup_RoundTrips()
     {
         using var reg = new ProcessSpawnRegistry();
-        reg.OnProcessStart(pid: 100, parentPid: 50, imageName: "cmd.exe", observedAtTickMs: 1_000);
+        reg.OnProcessStart(pid: 100, parentPid: 50, imageName: "cmd.exe", commandLine: "cmd.exe /c dir", observedAtTickMs: 1_000);
         await Assert.That(reg.TryGet(100, out var info)).IsTrue();
         await Assert.That(info.Pid).IsEqualTo(100u);
         await Assert.That(info.ParentPid).IsEqualTo(50u);
         await Assert.That(info.ImageName).IsEqualTo("cmd.exe");
+        await Assert.That(info.CommandLine).IsEqualTo("cmd.exe /c dir");
         await Assert.That(info.ExitedAtTickMs).IsNull();
     }
 
@@ -34,6 +35,7 @@ public class ProcessSpawnRegistryTests
         await Assert.That(info.Pid).IsEqualTo(200u);
         await Assert.That(info.ParentPid).IsEqualTo(0u);   // unknown
         await Assert.That(info.ImageName).IsEqualTo(string.Empty);
+        await Assert.That(info.CommandLine).IsEqualTo(string.Empty);
         await Assert.That(info.ExitedAtTickMs).IsEqualTo(5_000L);
     }
 
@@ -41,11 +43,12 @@ public class ProcessSpawnRegistryTests
     public async Task Start_Then_Stop_UpdatesExitTime_KeepsParentAndImage()
     {
         using var reg = new ProcessSpawnRegistry();
-        reg.OnProcessStart(pid: 100, parentPid: 50, imageName: "cmd.exe", observedAtTickMs: 1_000);
+        reg.OnProcessStart(pid: 100, parentPid: 50, imageName: "cmd.exe", commandLine: "cmd.exe /c dir", observedAtTickMs: 1_000);
         reg.OnProcessStop(pid: 100, exitedAtTickMs: 2_000);
         await Assert.That(reg.TryGet(100, out var info)).IsTrue();
         await Assert.That(info.ParentPid).IsEqualTo(50u);
         await Assert.That(info.ImageName).IsEqualTo("cmd.exe");
+        await Assert.That(info.CommandLine).IsEqualTo("cmd.exe /c dir");   // preserved across stop
         await Assert.That(info.ExitedAtTickMs).IsEqualTo(2_000L);
     }
 
@@ -53,7 +56,7 @@ public class ProcessSpawnRegistryTests
     public async Task Prune_RemovesExitedEntries_PastPostExitTtl()
     {
         using var reg = new ProcessSpawnRegistry();
-        reg.OnProcessStart(pid: 100, parentPid: 50, imageName: "cmd.exe", observedAtTickMs: 0);
+        reg.OnProcessStart(pid: 100, parentPid: 50, imageName: "cmd.exe", commandLine: "cmd.exe", observedAtTickMs: 0);
         reg.OnProcessStop(pid: 100, exitedAtTickMs: 1_000);
         // 1 second past the TTL → must evict.
         reg.Prune(nowTickMs: 1_000 + PostExitTtlMs + 1);
@@ -65,7 +68,7 @@ public class ProcessSpawnRegistryTests
     public async Task Prune_KeepsExitedEntries_WithinPostExitTtl()
     {
         using var reg = new ProcessSpawnRegistry();
-        reg.OnProcessStart(pid: 100, parentPid: 50, imageName: "cmd.exe", observedAtTickMs: 0);
+        reg.OnProcessStart(pid: 100, parentPid: 50, imageName: "cmd.exe", commandLine: "cmd.exe", observedAtTickMs: 0);
         reg.OnProcessStop(pid: 100, exitedAtTickMs: 1_000);
         // 1 second before the TTL → keep.
         reg.Prune(nowTickMs: 1_000 + PostExitTtlMs - 1);
@@ -78,7 +81,7 @@ public class ProcessSpawnRegistryTests
     {
         using var reg = new ProcessSpawnRegistry();
         // Process that never exited (e.g. svchost.exe). Should still get evicted after 60 min.
-        reg.OnProcessStart(pid: 100, parentPid: 50, imageName: "svchost.exe", observedAtTickMs: 0);
+        reg.OnProcessStart(pid: 100, parentPid: 50, imageName: "svchost.exe", commandLine: "svchost.exe -k netsvcs", observedAtTickMs: 0);
         reg.Prune(nowTickMs: AbsoluteTtlMs + 1);
         await Assert.That(reg.TryGet(100, out _)).IsFalse();
     }
@@ -87,7 +90,7 @@ public class ProcessSpawnRegistryTests
     public async Task Prune_AbsoluteTtl_KeepsRecentEntries()
     {
         using var reg = new ProcessSpawnRegistry();
-        reg.OnProcessStart(pid: 100, parentPid: 50, imageName: "svchost.exe", observedAtTickMs: 0);
+        reg.OnProcessStart(pid: 100, parentPid: 50, imageName: "svchost.exe", commandLine: "svchost.exe -k netsvcs", observedAtTickMs: 0);
         reg.Prune(nowTickMs: AbsoluteTtlMs - 1);
         await Assert.That(reg.TryGet(100, out _)).IsTrue();
     }
@@ -97,10 +100,11 @@ public class ProcessSpawnRegistryTests
     {
         // PID reuse: same pid, different parent + image. Latest observation should win.
         using var reg = new ProcessSpawnRegistry();
-        reg.OnProcessStart(pid: 100, parentPid: 50, imageName: "old.exe", observedAtTickMs: 1_000);
-        reg.OnProcessStart(pid: 100, parentPid: 80, imageName: "new.exe", observedAtTickMs: 2_000);
+        reg.OnProcessStart(pid: 100, parentPid: 50, imageName: "old.exe", commandLine: "old.exe", observedAtTickMs: 1_000);
+        reg.OnProcessStart(pid: 100, parentPid: 80, imageName: "new.exe", commandLine: "new.exe --flag", observedAtTickMs: 2_000);
         await Assert.That(reg.TryGet(100, out var info)).IsTrue();
         await Assert.That(info.ParentPid).IsEqualTo(80u);
         await Assert.That(info.ImageName).IsEqualTo("new.exe");
+        await Assert.That(info.CommandLine).IsEqualTo("new.exe --flag");
     }
 }

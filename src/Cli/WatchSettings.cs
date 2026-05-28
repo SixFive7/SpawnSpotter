@@ -30,7 +30,7 @@ public sealed class WatchSettings : CommandSettings
     public int? MaxSteals { get; init; }
 
     [CommandOption("-v|--verbosity <LEVEL>")]
-    [Description("Verbosity 0..3. 0=STEAL+SESSION_LOCK only, 1=+USER_*, 2=+diagnostics, 3=+raw event stream (key categories only — never key contents). Default: 0")]
+    [Description("Verbosity 0..2. 0=STEAL+MAYBE_STEAL+SESSION_LOCK, 1=+USER_*+SHELL_TRANSIENT+PREV_WINDOW_CLOSED, 2=+diagnostics. Default: 0")]
     public int Verbosity { get; init; } = 0;
 
     [CommandOption("--threshold-ms <INT>")]
@@ -92,9 +92,9 @@ public sealed class WatchSettings : CommandSettings
 
     public override Spectre.Console.ValidationResult Validate()
     {
-        if (Verbosity < 0 || Verbosity > 3)
+        if (Verbosity < 0 || Verbosity > 2)
         {
-            return Spectre.Console.ValidationResult.Error("--verbosity must be between 0 and 3");
+            return Spectre.Console.ValidationResult.Error("--verbosity must be between 0 and 2");
         }
         if (ThresholdMs <= 0)
         {

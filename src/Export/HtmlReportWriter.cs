@@ -80,6 +80,8 @@ internal static class HtmlReportWriter
   .cls-SHELL_TRANSIENT { color: #888; font-style: italic; }
   .cls-PIPELINE_PRESSURE { color: #ffd87b; }
   .cls-PREV_WINDOW_CLOSED { color: #6fcf97; }
+  .cls-FOCUS_RESTORED { color: #7fc7d9; }
+  .cls-SAME_APP { color: #9aa7b1; }
   .toggle { cursor: pointer; color: #888; user-select: none; }
   .toggle:hover { color: #ddd; }
   .empty { color: #888; }
@@ -102,6 +104,8 @@ internal static class HtmlReportWriter
       <option>USER_OTHER</option>
       <option>SHELL_TRANSIENT</option>
       <option>PREV_WINDOW_CLOSED</option>
+      <option>FOCUS_RESTORED</option>
+      <option>SAME_APP</option>
       <option>PIPELINE_PRESSURE</option>
     </select>
   </label>

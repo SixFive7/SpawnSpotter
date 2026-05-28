@@ -107,6 +107,21 @@ public static class FocusClassifier
         {
             cls = Classification.UserOther;
         }
+        else if (input.LockedHwnd != IntPtr.Zero && input.Hwnd == input.LockedHwnd && input.LockedHwndIsAlive)
+        {
+            // Focus returned to the window you were already on (the locked anchor) with no user
+            // action — e.g. an interloper grabbed focus then handed it back. Not a steal; you're
+            // back where you were. (LockedHwndIsAlive guards against a recycled handle that merely
+            // shares the numeric value — see the pipeline's owned-by-PID aliveness check.)
+            cls = Classification.FocusRestored;
+        }
+        else if (input.PrevForegroundPid != 0 && input.Pid == input.PrevForegroundPid)
+        {
+            // Focus moved between two windows of the SAME process (intra-app navigation) — the app
+            // that already had the foreground raised another of its own windows. Not another app
+            // barging in.
+            cls = Classification.SameApp;
+        }
         else if (input.PrevForegroundHwnd != IntPtr.Zero && !input.PrevForegroundIsAlive)
         {
             // The window that HAD focus was just destroyed — focus was *released* to this window,
@@ -131,13 +146,25 @@ public static class FocusClassifier
         // ---- Locked-anchor view + bookkeeping ----
         var anchorResult = ComputeAnchorView(input, config, cls);
         var note = anchorResult.Note;
-        if (cls == Classification.PrevWindowClosed && note.Length == 0)
+        if (note.Length == 0)
         {
-            // Keep the more-specific "locked window destroyed" anchor note when the closed
-            // window was also the locked anchor; otherwise describe the released foreground.
-            note = input.PrevForegroundPid != 0
-                ? $"previous foreground (pid {input.PrevForegroundPid}) closed"
-                : "previous foreground closed";
+            // Keep any more-specific anchor note (e.g. "locked window destroyed"); otherwise
+            // describe the benign focus change.
+            note = cls switch
+            {
+                // #4 corroboration: only claim the process exited when the registry positively
+                // confirms it. The ETW exit feed lags ~1s, so absence is "unknown", not "alive".
+                Classification.PrevWindowClosed when input.PrevForegroundProcessExited =>
+                    $"previous foreground process (pid {input.PrevForegroundPid}) exited",
+                Classification.PrevWindowClosed =>
+                    input.PrevForegroundPid != 0
+                        ? $"previous foreground (pid {input.PrevForegroundPid}) closed"
+                        : "previous foreground closed",
+                Classification.FocusRestored => "focus restored to the window you were on",
+                Classification.SameApp =>
+                    input.Pid != 0 ? $"same-app focus change (pid {input.Pid})" : "same-app focus change",
+                _ => note,
+            };
         }
         return anchorResult with { Classification = cls, Note = note };
     }

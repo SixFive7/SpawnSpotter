@@ -4,8 +4,9 @@ namespace SpawnSpotter.Native;
 
 /// <summary>
 /// ETW (Event Tracing for Windows) <c>[LibraryImport]</c> P/Invoke declarations and minimal
-/// struct layouts. Used by <see cref="Pipeline.EtwSession"/> to control a private real-time
-/// session that subscribes to <c>Microsoft-Windows-Kernel-Process</c> events.
+/// struct layouts. Used by <see cref="Pipeline.EtwSession"/> to control the system-wide
+/// real-time <c>NT Kernel Logger</c> session, which emits classic (MOF) Process events that
+/// carry the full command line at creation — race-free, unlike a post-spawn user-mode query.
 ///
 /// <para>
 /// Plan §3 mandates hand-rolled P/Invoke + <c>[LibraryImport]</c> (no TraceEvent NuGet,
@@ -22,11 +23,41 @@ internal static partial class Etw
     /// <summary>
     /// <c>Microsoft-Windows-Kernel-Process</c> — public ETW manifest provider that emits
     /// ProcessStart (id 1), ProcessStop (id 2), ProcessRundown (id 15), ThreadStart (id 3),
-    /// ImageLoad (id 5), and friends. Documented; works without the deprecated NT Kernel
-    /// Logger. Requires SeSystemProfilePrivilege (admin).
+    /// ImageLoad (id 5), and friends. Documented but does NOT emit the command line. Retained
+    /// only for reference — the active session uses the NT Kernel Logger (below) instead.
     /// </summary>
     public static readonly Guid KernelProcessProviderGuid =
         new("22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716");
+
+    /// <summary>
+    /// <c>SystemTraceControlGuid</c> — the well-known session GUID that selects the singleton
+    /// <c>NT Kernel Logger</c> kernel session. Written to <see cref="WNODE_HEADER.Guid"/> in
+    /// <c>StartTraceW</c>; combined with <see cref="EVENT_TRACE_FLAG_PROCESS"/> in
+    /// <see cref="EVENT_TRACE_PROPERTIES.EnableFlags"/> it turns on classic Process events.
+    /// </summary>
+    public static readonly Guid SystemTraceControlGuid =
+        new("9e814aad-3204-11d2-9a82-006008a86939");
+
+    /// <summary>
+    /// <c>EventTraceProcessGuid</c> — the MOF event-class GUID stamped into
+    /// <c>EVENT_RECORD.EventHeader.ProviderId</c> for every classic kernel Process event
+    /// (Start / End / DCStart / DCEnd). We discriminate kernel Process events by this GUID,
+    /// NOT by <c>EventDescriptor.Id</c> (classic MOF events carry Id = 0).
+    /// </summary>
+    public static readonly Guid EventTraceProcessGuid =
+        new("3d6fa8d0-fe05-11d0-9dda-00c04fd7ba7c");
+
+    /// <summary>
+    /// <see cref="EVENT_TRACE_PROPERTIES.EnableFlags"/> bit that enables classic Process
+    /// (and process-rundown) events on the NT Kernel Logger session.
+    /// </summary>
+    public const uint EVENT_TRACE_FLAG_PROCESS = 0x00000001;
+
+    /// <summary>
+    /// The fixed name of the singleton kernel logger session. Only one such session can exist
+    /// system-wide; a second <c>StartTraceW</c> for it fails with <see cref="ERROR_ALREADY_EXISTS"/>.
+    /// </summary>
+    public const string KERNEL_LOGGER_NAME = "NT Kernel Logger";
 
     // =========================================================================
     // Constants
@@ -104,7 +135,7 @@ internal static partial class Etw
         public uint MaximumFileSize;       // 0 = no cap (real-time only)
         public uint LogFileMode;           // EVENT_TRACE_REAL_TIME_MODE | EVENT_TRACE_USE_PAGED_MEMORY
         public uint FlushTimer;            // seconds; 0 = default
-        public uint EnableFlags;           // SystemTraceProvider-only — leave zero
+        public uint EnableFlags;           // NT Kernel Logger group mask — EVENT_TRACE_FLAG_PROCESS
         public int AgeLimit;               // union: { FlushThreshold } — leave zero
         public uint NumberOfBuffers;       // [out]
         public uint FreeBuffers;           // [out]
@@ -303,22 +334,19 @@ internal static partial class Etw
         public uint BuffersLost;
     }
 
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    public struct TIME_ZONE_INFORMATION
+    // Must match Win32 TIME_ZONE_INFORMATION exactly (172 bytes, 4-byte aligned): the two name
+    // fields are WCHAR[32] = 64 bytes each. Getting this wrong shrinks the enclosing
+    // TRACE_LOGFILE_HEADER and shifts EVENT_TRACE_LOGFILEW.EventRecordCallback to the wrong offset,
+    // so ProcessTrace ends up calling a garbage function pointer (access violation before any
+    // managed callback runs). Using `ulong` here would also force 8-byte alignment, which is wrong.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct TIME_ZONE_INFORMATION
     {
         public int Bias;
-        // StandardName: 32 chars
-        public ulong StandardName0;
-        public ulong StandardName1;
-        public ulong StandardName2;
-        public ulong StandardName3;
+        public fixed char StandardName[32];   // WCHAR[32] = 64 bytes
         public SYSTEMTIME StandardDate;
         public int StandardBias;
-        // DaylightName: 32 chars
-        public ulong DaylightName0;
-        public ulong DaylightName1;
-        public ulong DaylightName2;
-        public ulong DaylightName3;
+        public fixed char DaylightName[32];   // WCHAR[32] = 64 bytes
         public SYSTEMTIME DaylightDate;
         public int DaylightBias;
     }

@@ -4,9 +4,9 @@ using SpawnSpotter.Native;
 namespace SpawnSpotter.Pipeline;
 
 /// <summary>
-/// Owns a private real-time ETW session that subscribes to
-/// <c>Microsoft-Windows-Kernel-Process</c>. The session is created in <see cref="Start"/>;
-/// the consumer thread (added in Phase 4) attaches via <c>OpenTraceW</c> + <c>ProcessTrace</c>
+/// Owns the system-wide real-time <c>NT Kernel Logger</c> session, configured to emit classic
+/// (MOF) Process events that carry the full command line at creation. The session is created in
+/// <see cref="Start"/>; the consumer thread attaches via <c>OpenTraceW</c> + <c>ProcessTrace</c>
 /// to drain events into <c>ProcessSpawnRegistry</c>.
 ///
 /// <para>
@@ -17,9 +17,11 @@ namespace SpawnSpotter.Pipeline;
 /// </para>
 ///
 /// <para>
-/// Session name: <c>SpawnSpotter-{pid}</c>. Including the pid keeps two concurrent runs from
-/// colliding and makes leaked sessions from prior crashes trivially identifiable
-/// (<c>logman query -ets | findstr SpawnSpotter</c>).
+/// Session name: <c>NT Kernel Logger</c>. This is a single, system-wide singleton session —
+/// only one consumer (any process) may own it at a time. A conflicting owner makes
+/// <c>StartTraceW</c> fail with <see cref="Etw.ERROR_ALREADY_EXISTS"/>, which we hard-fail with
+/// cleanup guidance (<c>logman stop "NT Kernel Logger" -ets</c>). <see cref="TryStopByName"/>
+/// best-effort reclaims a leftover instance from a prior crashed run before starting.
 /// </para>
 /// </summary>
 internal sealed unsafe class EtwSession : IDisposable
@@ -40,9 +42,9 @@ internal sealed unsafe class EtwSession : IDisposable
     private const uint MinimumBuffers = 4;
     private const uint MaximumBuffers = 16;
     private const uint FlushTimerSeconds = 1;
-    private const int TrailingNameBytes = 1024; // plenty for "SpawnSpotter-{pid}\0"
+    private const int TrailingNameBytes = 1024; // plenty for "NT Kernel Logger\0"
 
-    public EtwSession() : this($"SpawnSpotter-{Environment.ProcessId}") { }
+    public EtwSession() : this(Etw.KERNEL_LOGGER_NAME) { }
 
     public EtwSession(string sessionName)
     {
@@ -54,7 +56,10 @@ internal sealed unsafe class EtwSession : IDisposable
     }
 
     /// <summary>
-    /// Creates the ETW session and enables the kernel-process provider on it. Throws
+    /// Creates the NT Kernel Logger session with classic Process events enabled. The kernel
+    /// logger is configured entirely through <c>StartTraceW</c> (its <see cref="Etw.WNODE_HEADER.Guid"/>
+    /// selects the singleton session and <see cref="Etw.EVENT_TRACE_PROPERTIES.EnableFlags"/> selects
+    /// the event groups) — there is no separate provider-enablement step. Throws
     /// <see cref="EtwSessionException"/> on any failure — caller is expected to catch
     /// and fail the run cleanly.
     /// </summary>
@@ -79,44 +84,30 @@ internal sealed unsafe class EtwSession : IDisposable
         props->Wnode.BufferSize = (uint)totalSize;
         props->Wnode.ClientContext = Etw.WNODE_CLIENT_CONTEXT_QPC;
         props->Wnode.Flags = Etw.WNODE_FLAG_TRACED_GUID;
+        // The NT Kernel Logger is selected by writing SystemTraceControlGuid into the WNODE
+        // GUID, and its event groups are chosen via EnableFlags — both BEFORE StartTraceW.
+        props->Wnode.Guid = Etw.SystemTraceControlGuid;
+        props->EnableFlags = Etw.EVENT_TRACE_FLAG_PROCESS;
         props->BufferSize = BufferSizeKb;
         props->MinimumBuffers = MinimumBuffers;
         props->MaximumBuffers = MaximumBuffers;
         props->FlushTimer = FlushTimerSeconds;
-        props->LogFileMode = Etw.EVENT_TRACE_REAL_TIME_MODE | Etw.EVENT_TRACE_USE_PAGED_MEMORY;
+        // Real-time only. The NT Kernel Logger logs from non-paged contexts, so
+        // EVENT_TRACE_USE_PAGED_MEMORY is invalid here (StartTraceW -> ERROR_INVALID_PARAMETER).
+        props->LogFileMode = Etw.EVENT_TRACE_REAL_TIME_MODE;
         props->LogFileNameOffset = 0;
         props->LoggerNameOffset = (uint)Etw.SizeOfEventTraceProperties;
         // Kernel copies SessionName back into [LoggerNameOffset..] on success — we don't
         // need to pre-fill it (StartTraceW takes the InstanceName separately as a string).
 
-        // 3) Create the session.
+        // 3) Create the session. For the kernel logger this fully configures it (Process events
+        // via EnableFlags); there is no separate provider-enablement step.
         var startResult = Etw.StartTraceW(out _traceHandle, SessionName, props);
         if (startResult != Etw.ERROR_SUCCESS)
         {
             FreeBuffer();
             throw new EtwSessionException(
                 $"StartTraceW failed for session '{SessionName}': Win32 error 0x{startResult:X} ({FormatEtwError(startResult)}).");
-        }
-
-        // 4) Enable the kernel-process provider on the new session.
-        var providerId = Etw.KernelProcessProviderGuid;
-        var enableResult = Etw.EnableTraceEx2(
-            _traceHandle,
-            &providerId,
-            Etw.EVENT_CONTROL_CODE_ENABLE_PROVIDER,
-            Etw.TRACE_LEVEL_INFORMATION,
-            Etw.KERNEL_PROCESS_KEYWORD_PROCESS,
-            MatchAllKeyword: 0,
-            Timeout: 0,
-            EnableParameters: IntPtr.Zero);
-        if (enableResult != Etw.ERROR_SUCCESS)
-        {
-            // Best-effort teardown so we don't leak a half-configured session.
-            TryStopByHandle();
-            FreeBuffer();
-            _traceHandle = 0;
-            throw new EtwSessionException(
-                $"EnableTraceEx2 failed for provider Microsoft-Windows-Kernel-Process: Win32 error 0x{enableResult:X} ({FormatEtwError(enableResult)}).");
         }
 
         _started = true;
@@ -201,8 +192,8 @@ internal sealed unsafe class EtwSession : IDisposable
 
     private static string FormatEtwError(int code) => code switch
     {
-        Etw.ERROR_ACCESS_DENIED => "ACCESS_DENIED — session needs administrator",
-        Etw.ERROR_ALREADY_EXISTS => "ALREADY_EXISTS — a session with this name is already running",
+        Etw.ERROR_ACCESS_DENIED => "ACCESS_DENIED — the NT Kernel Logger needs administrator",
+        Etw.ERROR_ALREADY_EXISTS => "ALREADY_EXISTS — the NT Kernel Logger is already owned by another consumer; stop it with: logman stop \"NT Kernel Logger\" -ets",
         Etw.ERROR_INVALID_PARAMETER => "INVALID_PARAMETER",
         Etw.ERROR_BAD_LENGTH => "BAD_LENGTH",
         Etw.ERROR_WMI_INSTANCE_NOT_FOUND => "WMI_INSTANCE_NOT_FOUND",

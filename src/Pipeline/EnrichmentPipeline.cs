@@ -375,7 +375,7 @@ internal sealed class EnrichmentPipeline
                         Pid: nextPid,
                         ImagePath: info.ImageName,
                         ImageBasename: info.ImageName,
-                        CommandLine: string.Empty,
+                        CommandLine: info.CommandLine,
                         CurrentDirectory: string.Empty,
                         PackageAumi: null,
                         Environment: null,
@@ -547,6 +547,13 @@ internal sealed class EnrichmentPipeline
         // Most-recent input of ANY kind (key or mouse) — feeds the STEAL vs MAYBE_STEAL split.
         var lastInputTickMs = Math.Max(_lastKeyTickMs, _lastMouseDownTickMs);
 
+        // #4: corroborate the previous foreground's window-destroyed state with the ETW registry's
+        // process-exit signal. Positive-only — the feed lags ~1s, so a missing exit means "unknown".
+        var prevForegroundProcessExited = _prevForegroundPid != 0
+            && _spawnRegistry is not null
+            && _spawnRegistry.TryGet(_prevForegroundPid, out var prevInfo)
+            && prevInfo.ExitedAtTickMs.HasValue;
+
         var input = new ClassifierInput(
             NowTickMs: ev.TickMs,
             Hwnd: ev.Hwnd,
@@ -561,12 +568,13 @@ internal sealed class EnrichmentPipeline
             LockedHwnd: _lockedHwnd,
             LockedPid: _lockedPid,
             LockedAtTickMs: _lockedAtTickMs,
-            LockedHwndIsAlive: _lockedHwnd == IntPtr.Zero ? false : Win32.IsWindow(_lockedHwnd),
+            LockedHwndIsAlive: IsAliveAndOwnedBy(_lockedHwnd, _lockedPid),
             ModifierHeld: ev.ModifierHeld,
             LastInputTickMs: lastInputTickMs,
             PrevForegroundHwnd: _prevForegroundHwnd,
             PrevForegroundPid: _prevForegroundPid,
-            PrevForegroundIsAlive: _prevForegroundHwnd == IntPtr.Zero || Win32.IsWindow(_prevForegroundHwnd));
+            PrevForegroundIsAlive: _prevForegroundHwnd == IntPtr.Zero || IsAliveAndOwnedBy(_prevForegroundHwnd, _prevForegroundPid),
+            PrevForegroundProcessExited: prevForegroundProcessExited);
 
         var result = FocusClassifier.Classify(input, _config);
 
@@ -627,6 +635,8 @@ internal sealed class EnrichmentPipeline
             case Classification.UserOther: _stats.IncrementUserOther(); break;
             case Classification.ShellTransient: _stats.IncrementShellTransient(); break;
             case Classification.PrevWindowClosed: _stats.IncrementPrevWindowClosed(); break;
+            case Classification.FocusRestored: _stats.IncrementFocusRestored(); break;
+            case Classification.SameApp: _stats.IncrementSameApp(); break;
         }
 
         if (result.DropFromLog)
@@ -640,6 +650,20 @@ internal sealed class EnrichmentPipeline
 
     private static long ComputeAge(long now, long stamp)
         => stamp <= 0 ? -1 : now - stamp;
+
+    /// <summary>
+    /// True if <paramref name="hwnd"/> is still a live window AND still owned by
+    /// <paramref name="pid"/>. The PID check hardens against HWND recycling: a destroyed handle can
+    /// be reassigned to a different process's window, where a bare IsWindow() would wrongly report
+    /// "alive". When <paramref name="pid"/> is 0 (ownership unknown) we trust IsWindow alone.
+    /// </summary>
+    private static bool IsAliveAndOwnedBy(IntPtr hwnd, uint pid)
+    {
+        if (hwnd == IntPtr.Zero || !Win32.IsWindow(hwnd)) { return false; }
+        if (pid == 0) { return true; }
+        Win32.GetWindowThreadProcessId(hwnd, out var ownerPid);
+        return ownerPid == pid;
+    }
 
     private static EventRecord BuildDiagnosticRecord(EnrichedEvent ev, string note)
     {

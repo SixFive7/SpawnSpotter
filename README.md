@@ -49,7 +49,7 @@ For a bounded run:
 | `-m, --mode <MODE>` | `interactive` | One of `interactive` (live status line + scrolling events), `silent` (no UI; file logs only), `status-only` (status line, no per-event lines). |
 | `-d, --duration <SPAN>` | (unset = forever) | Auto-stop after this span. Examples: `90s`, `45m`, `2h`, `1d`, `2h30m`. |
 | `--max-steals <N>` | (unset) | Stop after N STEAL events. Combines with `--duration` (whichever first). |
-| `-v, --verbosity <0..3>` | `0` | `0`=STEAL+MAYBE_STEAL+SESSION_LOCK+PREV_WINDOW_CLOSED · `1`=+USER_*+SHELL_TRANSIENT · `2`=+diagnostics · `3`=+raw event stream (key **categories** only — never key contents). |
+| `-v, --verbosity <0..2>` | `0` | `0`=STEAL+MAYBE_STEAL+SESSION_LOCK · `1`=+USER_* and benign (SHELL_TRANSIENT, PREV_WINDOW_CLOSED, FOCUS_RESTORED, SAME_APP) · `2`=+diagnostics (dedupe / ignore-filter drops). |
 | `--threshold-ms <INT>` | `500` | Classifier window for "input preceded this focus change?" (ms). |
 | `--threshold-alt-tab-ms <INT>` | = `--threshold-ms` | Per-source override for Alt+Tab. |
 | `--threshold-click-ms <INT>` | `5000` | Click threshold (ms). Independent of `--threshold-ms` — slow-following popups (file dialogs, taskbar previews) can take seconds to receive focus after the actual click. |
@@ -280,7 +280,15 @@ Both show at the default `-v 0` and both appear in the exit summary, so the for-
 
 You're watching a long-running command in a terminal and it finishes — the process exits, its window is destroyed, and Windows hands the foreground to whatever is next in the Z-order. Nothing stole focus; it was *released* because the window you were watching went away. To the timing classifier this looks exactly like a STEAL (no recent input, foreground changed).
 
-The pipeline remembers the window that currently holds the foreground. When the next foreground change arrives with no user action to explain it, the classifier checks whether that previous window still exists (`IsWindow`). If it's gone, the event is `PREV_WINDOW_CLOSED` instead of STEAL. The check is synchronous and intrinsically recent — the previous window held focus milliseconds ago — so it doesn't depend on the ~1 s-lagged ETW process-exit feed. An explicit Alt+Tab / click / system-key within its threshold still wins attribution; this only intercepts the otherwise-unexplained case. Shown at the default `-v 0`.
+The pipeline remembers the window that currently holds the foreground. When the next foreground change arrives with no user action to explain it, the classifier checks whether that previous window still exists (`IsWindow`). If it's gone, the event is `PREV_WINDOW_CLOSED` instead of STEAL. The check is synchronous and intrinsically recent — the previous window held focus milliseconds ago — so it doesn't depend on the ~1 s-lagged ETW process-exit feed. An explicit Alt+Tab / click / system-key within its threshold still wins attribution; this only intercepts the otherwise-unexplained case. When the ETW spawn registry has caught up (it lags ~1 s), the note also confirms whether the *process* exited, not just the window. Shown at `-v 1`+, alongside the other explained, non-steal categories (its count still appears in the exit summary).
+
+### FOCUS_RESTORED
+
+Focus came back to the window you were already working in (the locked anchor) without you clicking or alt-tabbing — e.g. a background app grabbed focus for a moment, then handed it back. The grab itself is still flagged (STEAL/MAYBE_STEAL); this labels the *return* so it isn't double-counted as a second steal. Recognized by the new foreground HWND matching the live locked anchor (with an owned-by-PID check so a recycled handle can't fake it).
+
+### SAME_APP
+
+Focus moved between two windows of the **same process** — the app that already held the foreground raised another of its own windows (a compose window, a child dialog), not a different app barging in. Recognized by the new foreground's PID matching the previous foreground's PID.
 
 ---
 
@@ -304,7 +312,7 @@ Default is `csv,jsonl`. Opt-in to more via `--format csv,jsonl,logfmt,md,log,htm
 | Field | Type | Notes |
 |---|---|---|
 | `timestamp_utc` | ISO 8601 (ms precision) | The OS-recorded time of the event (from `KBDLLHOOKSTRUCT.time` / `MSLLHOOKSTRUCT.time` / `dwmsEventTime`), reconstructed to a full 64-bit timestamp. |
-| `classification` | enum | `STEAL` / `MAYBE_STEAL` / `SESSION_LOCK` / `USER_ALT_TAB` / `USER_CLICK` / `USER_OTHER` / `SHELL_TRANSIENT` / `PREV_WINDOW_CLOSED` / `PIPELINE_PRESSURE` |
+| `classification` | enum | `STEAL` / `MAYBE_STEAL` / `SESSION_LOCK` / `USER_ALT_TAB` / `USER_CLICK` / `USER_OTHER` / `SHELL_TRANSIENT` / `PREV_WINDOW_CLOSED` / `FOCUS_RESTORED` / `SAME_APP` / `PIPELINE_PRESSURE` |
 | `monitored_via` | enum | `EVENT_SYSTEM_FOREGROUND` / `EVENT_OBJECT_SHOW` / `EVENT_OBJECT_FOCUS` / `INTERNAL` (for `PIPELINE_PRESSURE` rows) |
 | `hwnd` | hex string | New foreground / shown / focused window handle. |
 | `window_class` | string | Win32 window class name. |
@@ -341,6 +349,14 @@ dotnet publish ./SpawnSpotter.csproj -c Release -r win-x64
 ```
 
 The AOT publish step requires Visual Studio Build Tools on PATH for `vswhere.exe` and `link.exe`. If you see `'vswhere.exe' is not recognized`, prepend `C:\Program Files (x86)\Microsoft Visual Studio\Installer` to PATH for that shell.
+
+### Smoke test
+
+`dotnet test` runs on the JIT and can't catch Native-AOT / native-interop regressions (e.g. an ETW struct-layout error that crashes `ProcessTrace` at runtime). After publishing, run the end-to-end smoke test from an **elevated** prompt — it exercises the real binary for a few seconds (NT Kernel Logger ETW session + hooks + pipeline + clean shutdown) and fails on a non-zero exit or a missing exit summary:
+
+```powershell
+pwsh -File scripts/smoke-test.ps1            # needs elevation (NT Kernel Logger + requireAdministrator)
+```
 
 ---
 

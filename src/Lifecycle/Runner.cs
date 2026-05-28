@@ -52,10 +52,10 @@ public sealed class Runner(WatchSettings settings)
         var ux = new ConsoleUx(_settings, counters);
 
         // ---------------- ETW spawner-attribution session + consumer (hard-fail per Q1a) ----------------
-        // The session subscribes to Microsoft-Windows-Kernel-Process and populates a
-        // ProcessSpawnRegistry. The enricher consults the registry when the user-mode chain
-        // walker hits a dead PID — letting us see past the <exited> boundary that frustrates
-        // short-lived flashes (WindowsTerminal.exe -Embedding et al.).
+        // The session runs the NT Kernel Logger (classic Process events, which carry the
+        // command line at creation) and populates a ProcessSpawnRegistry. The enricher consults
+        // the registry when the user-mode chain walker hits a dead PID — letting us see past the
+        // <exited> boundary that frustrates short-lived flashes (WindowsTerminal.exe -Embedding et al.).
         ProcessSpawnRegistry? spawnRegistry = null;
         EtwSession? etwSession = null;
         EtwConsumer? etwConsumer = null;

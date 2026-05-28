@@ -153,7 +153,7 @@ internal sealed unsafe class EtwConsumer : IDisposable
     [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
     private static void EventRecordCallback(Etw.EVENT_RECORD* rec)
     {
-        // Hot path — Microsoft-Windows-Kernel-Process can emit tens of events/sec under load.
+        // Hot path — the NT Kernel Logger can emit tens of events/sec under load.
         // Quick out for null + missing-registry races (Stop racing with a pending event).
         if (rec == null) { return; }
         var registry = s_registry;

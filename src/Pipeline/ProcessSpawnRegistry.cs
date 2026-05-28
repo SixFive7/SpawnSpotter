@@ -48,13 +48,14 @@ internal sealed class ProcessSpawnRegistry : IDisposable
     /// record already exists for this pid (e.g. the user-mode walker beat us to it, or rundown
     /// arrived after the start), the newer observation wins.
     /// </summary>
-    public void OnProcessStart(uint pid, uint parentPid, string imageName, long observedAtTickMs)
+    public void OnProcessStart(uint pid, uint parentPid, string imageName, string commandLine, long observedAtTickMs)
     {
         if (pid == 0) { return; }
         _byPid[pid] = new ProcessSpawnInfo(
             Pid: pid,
             ParentPid: parentPid,
             ImageName: imageName,
+            CommandLine: commandLine,
             ObservedAtTickMs: observedAtTickMs,
             ExitedAtTickMs: null);
     }
@@ -74,6 +75,7 @@ internal sealed class ProcessSpawnRegistry : IDisposable
                 Pid: pid,
                 ParentPid: 0,
                 ImageName: string.Empty,
+                CommandLine: string.Empty,
                 ObservedAtTickMs: exitedAtTickMs,
                 ExitedAtTickMs: exitedAtTickMs),
             (_, existing) => existing with { ExitedAtTickMs = exitedAtTickMs });

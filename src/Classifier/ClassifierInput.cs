@@ -35,4 +35,7 @@ public readonly record struct ClassifierInput(
     // inert unless the caller wires the previous foreground in.
     IntPtr PrevForegroundHwnd = default,
     uint PrevForegroundPid = 0,
-    bool PrevForegroundIsAlive = true);
+    bool PrevForegroundIsAlive = true,
+    // True when the spawn registry positively shows the previous foreground's PROCESS has exited
+    // (not just its window). Enriches the PREV_WINDOW_CLOSED note; defaults false (= unknown).
+    bool PrevForegroundProcessExited = false);

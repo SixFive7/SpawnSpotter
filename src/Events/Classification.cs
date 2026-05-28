@@ -20,6 +20,11 @@ namespace SpawnSpotter.Events;
 /// <see cref="PrevWindowClosed"/> marks a focus change that happened because the window that
 /// previously held the foreground was destroyed (e.g. a long-running console command finished
 /// and its window closed). Focus was released to the next window, not stolen.
+///
+/// <see cref="FocusRestored"/> = focus returned to the window you were already on (the locked
+/// anchor) with no user action — e.g. an interloper grabbed focus then handed it back.
+/// <see cref="SameApp"/> = focus moved between two windows of the same process (intra-app
+/// navigation), not another app barging in. Both are benign and surface at -v1.
 /// </summary>
 public enum Classification
 {
@@ -32,6 +37,8 @@ public enum Classification
     ShellTransient,
     MaybeSteal,
     PrevWindowClosed,
+    FocusRestored,
+    SameApp,
 }
 
 internal static class ClassificationExtensions
@@ -47,6 +54,8 @@ internal static class ClassificationExtensions
         Classification.PipelinePressure => "PIPELINE_PRESSURE",
         Classification.ShellTransient => "SHELL_TRANSIENT",
         Classification.PrevWindowClosed => "PREV_WINDOW_CLOSED",
+        Classification.FocusRestored => "FOCUS_RESTORED",
+        Classification.SameApp => "SAME_APP",
         _ => c.ToString(),
     };
 }

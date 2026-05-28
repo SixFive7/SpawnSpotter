@@ -747,4 +747,115 @@ public class FocusClassifierTests
         var r = FocusClassifier.Classify(input, DefaultCfg);
         await Assert.That(r.UpdateLockedAnchor).IsFalse();
     }
+
+    // -------------------------------------------------------------------------
+    // No-explicit-user-action branch ordering (step 6): the fall-through ladder is
+    // FOCUS_RESTORED → SAME_APP → PREV_WINDOW_CLOSED → STEAL/MAYBE_STEAL split. Explicit
+    // user-action checks (alt-tab / click / other-system-key) sit ahead of the whole ladder.
+    // -------------------------------------------------------------------------
+
+    [Test]
+    public async Task FocusRestored_NewForegroundIsLiveAnchor_NoInput()
+    {
+        // New foreground == the live locked anchor, no user input → focus returned to where
+        // you were. Anchor must NOT move (you never left).
+        var input = Base() with { Hwnd = (IntPtr)0x2000 }; // == LockedHwnd (alive)
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.FocusRestored);
+        await Assert.That(r.Note).Contains("focus restored");
+        await Assert.That(r.UpdateLockedAnchor).IsFalse();
+    }
+
+    [Test]
+    public async Task FocusRestored_DeadAnchor_FallsThrough()
+    {
+        // Same Hwnd as the anchor numerically, but the anchor is dead (recycled handle). The
+        // LockedHwndIsAlive guard blocks FOCUS_RESTORED; with no prev-foreground set it falls to
+        // the idle split → STEAL.
+        var input = Base() with { Hwnd = (IntPtr)0x2000, LockedHwndIsAlive = false };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsNotEqualTo(Classification.FocusRestored);
+        await Assert.That(r.Classification).IsEqualTo(Classification.Steal);
+    }
+
+    [Test]
+    public async Task SameApp_NewPidMatchesPrevForeground_NoInput()
+    {
+        // New foreground belongs to the same process that previously had focus (Hwnd differs
+        // from the anchor so FOCUS_RESTORED doesn't fire) → intra-app navigation.
+        var input = Base() with { PrevForegroundPid = 1234 }; // == Pid; Hwnd 0x1000 != LockedHwnd 0x2000
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.SameApp);
+        await Assert.That(r.Note).Contains("same-app");
+    }
+
+    [Test]
+    public async Task FocusRestored_BeatsSameApp()
+    {
+        // Both could match (Hwnd == live anchor AND Pid == prev-foreground pid). FOCUS_RESTORED
+        // is checked first in the ladder, so it wins.
+        var input = Base() with { Hwnd = (IntPtr)0x2000, PrevForegroundPid = 1234 };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.FocusRestored);
+    }
+
+    [Test]
+    public async Task RecentClick_BeatsFocusRestored()
+    {
+        // A fresh click is an explicit user action and is evaluated before the whole no-action
+        // ladder — so even when the new foreground is the live anchor, it's USER_CLICK.
+        var input = Base(100_000) with { Hwnd = (IntPtr)0x2000, LastMouseDownTickMs = 99_900 }; // 100 ms ago
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.UserClick);
+    }
+
+    [Test]
+    public async Task SameApp_BeatsPrevWindowClosed()
+    {
+        // Same-app pid match AND the prev foreground is dead. SAME_APP is ahead of
+        // PREV_WINDOW_CLOSED in the ladder, so it wins.
+        var input = Base() with
+        {
+            PrevForegroundPid = 1234, // == Pid
+            PrevForegroundHwnd = (IntPtr)0x9000,
+            PrevForegroundIsAlive = false,
+        };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.SameApp);
+    }
+
+    [Test]
+    public async Task PrevWindowClosed_ProcessExitConfirmed_NoteSaysExited()
+    {
+        // Prev foreground dead AND the registry confirms its process exited. Pid 4321 != our Pid
+        // 1234 (not SAME_APP); Hwnd 0x1000 != anchor 0x2000 (not FOCUS_RESTORED).
+        var input = Base() with
+        {
+            PrevForegroundHwnd = (IntPtr)0x9000,
+            PrevForegroundPid = 4321,
+            PrevForegroundIsAlive = false,
+            PrevForegroundProcessExited = true,
+        };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.PrevWindowClosed);
+        await Assert.That(r.Note).Contains("exited");
+    }
+
+    [Test]
+    public async Task PrevWindowClosed_ProcessNotConfirmed_NoteSaysClosed()
+    {
+        // Same as the exited case but the process-exit signal is absent (unknown) → the note
+        // says "closed" and must NOT claim the process exited.
+        var input = Base() with
+        {
+            PrevForegroundHwnd = (IntPtr)0x9000,
+            PrevForegroundPid = 4321,
+            PrevForegroundIsAlive = false,
+            PrevForegroundProcessExited = false,
+        };
+        var r = FocusClassifier.Classify(input, DefaultCfg);
+        await Assert.That(r.Classification).IsEqualTo(Classification.PrevWindowClosed);
+        await Assert.That(r.Note).Contains("closed");
+        await Assert.That(r.Note).DoesNotContain("exited");
+    }
 }
