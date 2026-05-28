@@ -43,6 +43,16 @@ public class RecordFormattingTests
     }
 
     [Test]
+    public async Task CsvField_NeutralizesMinusFormulaInjection()
+    {
+        // Excel treats a leading '-' as a formula initiator (e.g. "-1+1" evaluates to 0).
+        // Same defense as the other initiators: text-prefix the cell with a single quote and
+        // RFC-4180 quote-wrap. Production code at RecordFormatting.cs handles this; this test
+        // locks the contract in so the '-' branch can't be silently dropped from the initiator set.
+        await Assert.That(RecordFormatting.CsvField("-1+1")).IsEqualTo("\"'-1+1\"");
+    }
+
+    [Test]
     public async Task LogfmtValue_PlainPassesThrough()
     {
         await Assert.That(RecordFormatting.LogfmtValue("simple")).IsEqualTo("simple");
