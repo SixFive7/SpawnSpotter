@@ -223,39 +223,63 @@ internal sealed class EnrichmentPipeline
     /// </summary>
     private IEnumerable<EnrichedEvent> EnrichOne(RawHookEvent raw)
     {
-        // Pressure check: read the buffer's current count right after we picked an event off it.
-        // Use Interlocked.CompareExchange so only one worker emits the threshold-crossing event.
-        EnrichedEvent? pressureEvent = null;
-        var count = _input?.Count ?? 0;
-
-        if (Volatile.Read(ref _inPressure) == 0)
+        // Fault isolation: anything inside the enricher body (Win32 reads, ProcessReader,
+        // ancestor walks, allocations in ReadWindowText for very-long titles, future NREs)
+        // must NOT fault the Dataflow block — PropagateCompletion=true would tear down the
+        // sink and silently kill classification/logging for the rest of the run. Catch any
+        // non-cancellation exception, emit a diagnostic so the analyst can see something
+        // went wrong, and drop this one event by returning the empty enumerable. The block
+        // stays alive for the next event.
+        try
         {
-            if (count >= PressureEnterThreshold
-                && Interlocked.CompareExchange(ref _inPressure, 1, 0) == 0)
+            // Pressure check: read the buffer's current count right after we picked an event off it.
+            // Use Interlocked.CompareExchange so only one worker emits the threshold-crossing event.
+            EnrichedEvent? pressureEvent = null;
+            var count = _input?.Count ?? 0;
+
+            if (Volatile.Read(ref _inPressure) == 0)
             {
-                pressureEvent = MakePressureEvent(
-                    HookEventKind.PipelinePressureEnter, raw.TickMs, raw.WallUtc,
-                    $"buffer pressure: {count}/{BufferCapacity} ({100 * count / BufferCapacity}%)");
+                if (count >= PressureEnterThreshold
+                    && Interlocked.CompareExchange(ref _inPressure, 1, 0) == 0)
+                {
+                    pressureEvent = MakePressureEvent(
+                        HookEventKind.PipelinePressureEnter, raw.TickMs, raw.WallUtc,
+                        $"buffer pressure: {count}/{BufferCapacity} ({100 * count / BufferCapacity}%)");
+                }
             }
-        }
-        else
-        {
-            if (count <= PressureClearThreshold
-                && Interlocked.CompareExchange(ref _inPressure, 0, 1) == 1)
+            else
             {
-                pressureEvent = MakePressureEvent(
-                    HookEventKind.PipelinePressureClear, raw.TickMs, raw.WallUtc,
-                    $"buffer cleared: {count}/{BufferCapacity} ({100 * count / BufferCapacity}%)");
+                if (count <= PressureClearThreshold
+                    && Interlocked.CompareExchange(ref _inPressure, 0, 1) == 1)
+                {
+                    pressureEvent = MakePressureEvent(
+                        HookEventKind.PipelinePressureClear, raw.TickMs, raw.WallUtc,
+                        $"buffer cleared: {count}/{BufferCapacity} ({100 * count / BufferCapacity}%)");
+                }
             }
+
+            var enriched = EnrichInner(raw);
+
+            if (pressureEvent is { } pe)
+            {
+                return [pe, enriched];
+            }
+            return [enriched];
         }
-
-        var enriched = EnrichInner(raw);
-
-        if (pressureEvent is { } pe)
+        catch (OperationCanceledException)
         {
-            return [pe, enriched];
+            // Pipeline cancellation must propagate so the block completes cleanly on shutdown.
+            throw;
         }
-        return [enriched];
+        catch (Exception ex)
+        {
+            _onDiagnostic?.Invoke(BuildPipelineFaultRecord(
+                tickMs: raw.TickMs,
+                wallUtc: raw.WallUtc,
+                hwnd: raw.Hwnd,
+                note: $"enricher exception: {ex.GetType().Name}: {ex.Message}"));
+            return [];
+        }
     }
 
     private static EnrichedEvent MakePressureEvent(HookEventKind kind, long tickMs, DateTime utc, string note)
@@ -469,23 +493,42 @@ internal sealed class EnrichmentPipeline
 
     private void ProcessOne(EnrichedEvent ev)
     {
-        // Input events: state-only update. No row emitted.
-        if (ev.Kind.IsInputEvent())
+        // Fault isolation: same reasoning as EnrichOne — an ActionBlock that faults completes
+        // the sink, and PropagateCompletion=true on the upstream link would then tear the
+        // whole pipeline down. Catch any non-cancellation exception, emit a diagnostic, and
+        // drop just this one event so the next one is still processed.
+        try
         {
-            HandleInputEvent(ev);
-            return;
-        }
+            // Input events: state-only update. No row emitted.
+            if (ev.Kind.IsInputEvent())
+            {
+                HandleInputEvent(ev);
+                return;
+            }
 
-        // Pressure events: emit a special PIPELINE_PRESSURE record so the analyst can see
-        // exactly where in the event stream the buffer got stressed.
-        if (ev.Kind.IsPressureEvent())
+            // Pressure events: emit a special PIPELINE_PRESSURE record so the analyst can see
+            // exactly where in the event stream the buffer got stressed.
+            if (ev.Kind.IsPressureEvent())
+            {
+                HandlePressureEvent(ev);
+                return;
+            }
+
+            // Window event: dedupe + classify + emit.
+            HandleWindowEvent(ev);
+        }
+        catch (OperationCanceledException)
         {
-            HandlePressureEvent(ev);
-            return;
+            throw;
         }
-
-        // Window event: dedupe + classify + emit.
-        HandleWindowEvent(ev);
+        catch (Exception ex)
+        {
+            _onDiagnostic?.Invoke(BuildPipelineFaultRecord(
+                tickMs: ev.TickMs,
+                wallUtc: ev.WallUtc,
+                hwnd: ev.Hwnd,
+                note: $"sink exception: {ex.GetType().Name}: {ex.Message}"));
+        }
     }
 
     private void HandlePressureEvent(EnrichedEvent ev)
@@ -678,6 +721,37 @@ internal sealed class EnrichmentPipeline
             WindowClass: ev.WindowClass,
             WindowTitle: ev.WindowTitle,
             FocusedPid: ev.FocusedPid,
+            ParentChain: [],
+            KeyAgeMs: -1, MouseAgeMs: -1, IdleTimeMs: -1,
+            LockedHwndBefore: IntPtr.Zero, LockedPidBefore: 0,
+            Note: note);
+    }
+
+    /// <summary>
+    /// Build a diagnostic record for an internal pipeline fault (an exception thrown inside
+    /// <see cref="EnrichOne"/> or <see cref="ProcessOne"/>). Uses
+    /// <see cref="Classification.PipelinePressure"/> + <see cref="MonitoredVia.Internal"/>
+    /// — the same semantic bucket as buffer-pressure notices — because the analyst's mental
+    /// model for both is "the pipeline itself had something to say", not "the user / a window
+    /// did something". The note carries the exception type + message.
+    /// </summary>
+    /// <param name="tickMs">Monotonic tick at which the fault occurred. Reserved for future
+    /// correlation; the <see cref="EventRecord"/> itself only carries the wall-clock time.</param>
+    /// <param name="wallUtc">Wall-clock UTC time of the fault.</param>
+    /// <param name="hwnd">HWND of the event that triggered the fault, if known
+    /// (<see cref="IntPtr.Zero"/> for input/pressure events).</param>
+    /// <param name="note">Diagnostic note — typically <c>$"enricher exception: {type}: {msg}"</c>.</param>
+    private static EventRecord BuildPipelineFaultRecord(long tickMs, DateTime wallUtc, IntPtr hwnd, string note)
+    {
+        _ = tickMs;  // reserved; not currently surfaced in EventRecord
+        return new EventRecord(
+            TimestampUtc: wallUtc,
+            Classification: Classification.PipelinePressure,
+            MonitoredVia: MonitoredVia.Internal,
+            Hwnd: hwnd,
+            WindowClass: string.Empty,
+            WindowTitle: string.Empty,
+            FocusedPid: 0,
             ParentChain: [],
             KeyAgeMs: -1, MouseAgeMs: -1, IdleTimeMs: -1,
             LockedHwndBefore: IntPtr.Zero, LockedPidBefore: 0,
