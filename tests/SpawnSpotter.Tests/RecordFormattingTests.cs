@@ -21,6 +21,28 @@ public class RecordFormattingTests
     }
 
     [Test]
+    public async Task CsvField_NeutralizesEqualsFormulaInjection()
+    {
+        // Cell starting with '=' would otherwise execute as a formula when opened in Excel /
+        // LibreOffice / Google Sheets. The defense is to prefix a single quote AND quote-wrap
+        // (so spreadsheets see the leading ' as a text-prefix hint and strip it on display).
+        await Assert.That(RecordFormatting.CsvField("=cmd|'/c calc'!A1")).IsEqualTo("\"'=cmd|'/c calc'!A1\"");
+    }
+
+    [Test]
+    public async Task CsvField_NeutralizesPlusFormulaInjection()
+    {
+        await Assert.That(RecordFormatting.CsvField("+1+1")).IsEqualTo("\"'+1+1\"");
+    }
+
+    [Test]
+    public async Task CsvField_NeutralizesAtSignFormulaInjection()
+    {
+        // '@' is the trigger character for Excel's legacy DDE / function references.
+        await Assert.That(RecordFormatting.CsvField("@SUM(A1:A2)")).IsEqualTo("\"'@SUM(A1:A2)\"");
+    }
+
+    [Test]
     public async Task LogfmtValue_PlainPassesThrough()
     {
         await Assert.That(RecordFormatting.LogfmtValue("simple")).IsEqualTo("simple");
@@ -96,7 +118,7 @@ public class RecordFormattingTests
     public async Task ChainBasenamesArrowed_QuotesCommandLine()
     {
         // Non-empty cmdline is wrapped in double quotes per the implementation's
-        // pid:basename:"cmdline" shape (plan section 5.6).
+        // pid:basename:"cmdline" shape.
         var chain = new[]
         {
             new ChainNode(123, @"C:\Windows\System32\cmd.exe", "cmd.exe", "cmd /c echo hi", @"C:\", null, null, 0, null),
@@ -166,9 +188,9 @@ public class RecordFormattingTests
     }
 
     [Test]
-    public async Task PlainTextLine_MatchesPlanSection57Shape()
+    public async Task PlainTextLine_MatchesExpectedShape()
     {
-        // Plan section 5.7 example:
+        // Expected one-liner shape:
         // 2026-05-23 14:18:02.123Z [STEAL] pid=1234 cmd.exe ◄ Code.exe (window: "Foo")
         var rec = new EventRecord(
             TimestampUtc: new DateTime(2026, 5, 23, 14, 18, 2, 123, DateTimeKind.Utc),
@@ -192,9 +214,9 @@ public class RecordFormattingTests
     [Test]
     public async Task PlainTextLine_UsesArrowSeparator()
     {
-        // Specifically pin the ◄ separator that plan section 5.7 prescribes — different
-        // glyph than the ChainBasenamesArrowed helper (which uses ►) on purpose: line
-        // format reads child-first, the parent-chain helper reads parent-first.
+        // Specifically pin the ◄ separator — different glyph than the
+        // ChainBasenamesArrowed helper (which uses ►) on purpose: line format reads
+        // child-first, the parent-chain helper reads parent-first.
         var rec = new EventRecord(
             TimestampUtc: new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
             Classification: Classification.UserAltTab,

@@ -15,7 +15,17 @@ internal static class RecordFormatting
     public static string Iso8601UtcMs(DateTime utc)
         => utc.ToString("yyyy-MM-ddTHH:mm:ss.fff", CultureInfo.InvariantCulture) + "Z";
 
-    /// <summary>RFC 4180 CSV escape: wrap in quotes if needed; double internal quotes.</summary>
+    /// <summary>
+    /// RFC 4180 CSV escape: wrap in quotes if needed; double internal quotes.
+    /// Additionally, neutralizes CSV formula injection (OWASP) by prefixing a single quote
+    /// when the cell would otherwise start with one of <c>= + - @ \t \r</c> — characters Excel,
+    /// LibreOffice, and Google Sheets interpret as formula initiators. Window titles, command
+    /// lines, parent-chain strings, and notes are attacker-influenced (any process can
+    /// <c>SetWindowText</c> to anything, spawn anything), and this exporter advertises itself
+    /// as spreadsheet-friendly — exactly where the injection would otherwise execute.
+    /// The leading <c>'</c> is treated by spreadsheets as a text-prefix hint and stripped on
+    /// display, leaving the original value safely de-fanged.
+    /// </summary>
     public static string CsvField(string value)
     {
         if (value.Length == 0) { return string.Empty; }
@@ -28,9 +38,12 @@ internal static class RecordFormatting
                 break;
             }
         }
-        if (!needsQuoting) { return value; }
+        var first = value[0];
+        var isFormulaInitiator = first is '=' or '+' or '-' or '@' or '\t' or '\r';
+        if (!needsQuoting && !isFormulaInitiator) { return value; }
         var sb = new StringBuilder(value.Length + 4);
         sb.Append('"');
+        if (isFormulaInitiator) { sb.Append('\''); }
         foreach (var c in value)
         {
             if (c == '"') { sb.Append('"').Append('"'); }
@@ -87,7 +100,7 @@ internal static class RecordFormatting
     }
 
     /// <summary>
-    /// Basename-only chain rendering used by line-oriented formats (plan 5.6):
+    /// Basename-only chain rendering used by line-oriented formats:
     /// <c>pid:basename:cmdline ► pid:basename:cmdline ► …</c>.
     /// </summary>
     public static string ChainBasenamesArrowed(IReadOnlyList<ChainNode> chain)
@@ -108,7 +121,7 @@ internal static class RecordFormatting
     }
 
     /// <summary>
-    /// Plain-text one-liner per plan 5.7. Example:
+    /// Plain-text one-liner. Example:
     /// <c>2026-05-23 14:18:02.123Z [STEAL] pid=1234 cmd.exe ◄ Code.exe (window: "Foo")</c>
     /// </summary>
     public static string PlainTextLine(EventRecord r)
