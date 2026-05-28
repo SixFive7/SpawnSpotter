@@ -46,6 +46,14 @@ internal sealed class ExporterRegistry : IAsyncDisposable
         }
     }
 
+    // Test seam: inject pre-built exporters (e.g. a faulty stub) without going through the format
+    // switch above.
+    internal ExporterRegistry(string baseDir, IEnumerable<IEventExporter> exporters)
+    {
+        _baseDir = baseDir;
+        _exporters.AddRange(exporters);
+    }
+
     public string BaseDir => _baseDir;
 
     /// <summary>
@@ -54,33 +62,54 @@ internal sealed class ExporterRegistry : IAsyncDisposable
     /// </summary>
     public IReadOnlyList<IEventExporter> Exporters => _exporters;
 
+    /// <summary>
+    /// Write to every exporter. Fail-fast: the first writer that throws aborts the call and the
+    /// exception propagates. Subsequent exporters are NOT written - partial writes are deceptive
+    /// (one format has the record, another doesn't) so we crash loudly per the hard-fail policy.
+    /// </summary>
     public async ValueTask WriteAllAsync(EventRecord record)
     {
         foreach (var ex in _exporters)
         {
-            try { await ex.WriteAsync(record).ConfigureAwait(false); }
-            catch (Exception ex2)
-            {
-                Console.Error.WriteLine($"exporter '{ex.Format}' write failed: {ex2.Message}");
-            }
+            await ex.WriteAsync(record).ConfigureAwait(false);
         }
     }
 
+    /// <summary>
+    /// Flush every exporter. Unlike Write, we try ALL exporters even if early ones throw - the
+    /// shutdown path needs each format's buffered data flushed to disk before we exit, regardless
+    /// of whether a sibling format failed. Any collected failures are surfaced as an
+    /// AggregateException so the caller can report a non-zero exit.
+    /// </summary>
     public async ValueTask FlushAllAsync()
     {
+        List<Exception>? errors = null;
         foreach (var ex in _exporters)
         {
             try { await ex.FlushAsync().ConfigureAwait(false); }
-            catch { /* swallow */ }
+            catch (Exception flushEx)
+            {
+                Console.Error.WriteLine($"exporter '{ex.Format}' flush failed: {flushEx.Message}");
+                (errors ??= new()).Add(flushEx);
+            }
         }
+        if (errors is not null) { throw new AggregateException("one or more exporters failed to flush", errors); }
     }
 
+    /// <summary>
+    /// Dispose every exporter. Cleanup must complete even if some throw, so errors are logged but
+    /// not propagated - rethrowing here would leak file handles for the still-undisposed exporters
+    /// after the first failure.
+    /// </summary>
     public async ValueTask DisposeAsync()
     {
         foreach (var ex in _exporters)
         {
             try { await ex.DisposeAsync().ConfigureAwait(false); }
-            catch { /* swallow */ }
+            catch (Exception disposeEx)
+            {
+                Console.Error.WriteLine($"exporter '{ex.Format}' dispose failed: {disposeEx.Message}");
+            }
         }
         _exporters.Clear();
     }

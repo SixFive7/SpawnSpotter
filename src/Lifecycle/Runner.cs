@@ -161,14 +161,35 @@ public sealed class Runner(WatchSettings settings)
             // 2-N. One ActionBlock per active file exporter (--format determines which are enabled).
             // Each format has its own back-pressure boundary; a slow file exporter cannot delay the
             // console, accumulator, or other exporters.
+            //
+            // Failure policy: per the hard-fail subsystem rule, an exporter throwing on WriteAsync
+            // is a fatal condition (disk full, file locked, permission revoked mid-run). We log
+            // the failure, kick off graceful shutdown (so the OTHER consumers drain cleanly), and
+            // re-throw so the ActionBlock faults. The faulted Completion is detected below and
+            // bumps the exit code to 1.
+            var exporterBlocks = new List<(string Format, ActionBlock<EventRecord> Block)>(exporters.Exporters.Count);
             foreach (var ex in exporters.Exporters)
             {
                 var local = ex; // capture
                 var block = new ActionBlock<EventRecord>(
-                    ev => local.WriteAsync(ev).AsTask(),
+                    async ev =>
+                    {
+                        try
+                        {
+                            await local.WriteAsync(ev).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException) { throw; }
+                        catch (Exception writeEx)
+                        {
+                            System.Console.Error.WriteLine($"exporter '{local.Format}' write failed: {writeEx.Message}");
+                            try { shutdownCts.Cancel(); } catch { }
+                            throw;
+                        }
+                    },
                     consumerBlockOpts);
                 pipeline.RecordSource.LinkTo(block, linkOpts, VerbosityFilter);
                 consumers.Add(block);
+                exporterBlocks.Add((local.Format, block));
             }
 
             // 7. In-memory accumulator (for HTML report on shutdown; DOP=1 so no lock needed).
@@ -308,9 +329,17 @@ public sealed class Runner(WatchSettings settings)
             try { etwConsumer?.Stop(); } catch { }
             try { etwSession?.Stop(); } catch { }
             spawnRegistry?.Dispose();
-            // 5) Flush + dispose exporters.
-            await exporters.FlushAllAsync().ConfigureAwait(false);
+            // 5) Flush + dispose exporters. Flush failures are fatal (bump exit code); dispose
+            //    failures are merely logged because cleanup must complete for every exporter.
+            var flushFailed = false;
+            try { await exporters.FlushAllAsync().ConfigureAwait(false); }
+            catch (AggregateException) { flushFailed = true; }
             await exporters.DisposeAsync().ConfigureAwait(false);
+
+            // 6) Check whether any exporter ActionBlock faulted mid-run. If so, the exit summary
+            //    is still printed below (analyst wants to see partial counts), but we return 1.
+            var faultedFormats = exporterBlocks.Where(p => p.Block.Completion.IsFaulted).Select(p => p.Format).ToList();
+            var exporterFailed = flushFailed || faultedFormats.Count > 0;
 
             if (statusLine is not null)
             {
@@ -337,6 +366,19 @@ public sealed class Runner(WatchSettings settings)
             // ---------------- Exit summary (always) ----------------
             System.Console.WriteLine(ux.BuildExitSummary(logDir));
 
+            if (exporterFailed)
+            {
+                if (faultedFormats.Count > 0)
+                {
+                    System.Console.Error.WriteLine($"exit 1: exporter(s) faulted: {string.Join(", ", faultedFormats)}");
+                }
+                if (flushFailed)
+                {
+                    System.Console.Error.WriteLine("exit 1: one or more exporters failed to flush on shutdown");
+                }
+                return 1;
+            }
+
             return 0;
         }
         finally
@@ -360,7 +402,11 @@ public sealed class Runner(WatchSettings settings)
             try { etwConsumer?.Stop(); } catch { }
             try { etwSession?.Stop(); } catch { }
             try { spawnRegistry?.Dispose(); } catch { }
-            try { await exporters.FlushAllAsync().ConfigureAwait(false); } catch { }
+            // Exception-path teardown: flush errors are already logged inside FlushAllAsync, so
+            // we just swallow the AggregateException here - rethrowing would mask whatever
+            // exception sent us into the finally block in the first place.
+            try { await exporters.FlushAllAsync().ConfigureAwait(false); }
+            catch (AggregateException) { }
             // exporters.DisposeAsync() also runs via the outer `await using` declaration above,
             // but explicit invocation here keeps the order deterministic on the exception path.
             try { await exporters.DisposeAsync().ConfigureAwait(false); } catch { }
