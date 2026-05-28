@@ -38,4 +38,9 @@ public readonly record struct ClassifierInput(
     bool PrevForegroundIsAlive = true,
     // True when the spawn registry positively shows the previous foreground's PROCESS has exited
     // (not just its window). Enriches the PREV_WINDOW_CLOSED note; defaults false (= unknown).
-    bool PrevForegroundProcessExited = false);
+    bool PrevForegroundProcessExited = false,
+    // Basenames of the focused process's ancestors (NOT the focused process itself - that's
+    // ImageBasename above). Used by --ignore-child-of to suppress events whose ancestry matches a
+    // glob. Null/empty means "no ancestor info available" - the ignore-child-of filter becomes
+    // inert in that case. List order is parent, grandparent, great-grandparent, ...
+    IReadOnlyList<string>? AncestorBasenames = null);

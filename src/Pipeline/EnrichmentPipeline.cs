@@ -603,6 +603,20 @@ internal sealed class EnrichmentPipeline
             && _spawnRegistry.TryGet(_prevForegroundPid, out var prevInfo)
             && prevInfo.ExitedAtTickMs.HasValue;
 
+        // Ancestor basenames for --ignore-child-of (skip index 0 - that's the focused process,
+        // already covered by --ignore-image). Built lazily as a string array so the classifier
+        // doesn't have to know about ChainNode.
+        IReadOnlyList<string>? ancestorBasenames = null;
+        if (ev.AncestorChain.Count > 1)
+        {
+            var arr = new string[ev.AncestorChain.Count - 1];
+            for (var i = 1; i < ev.AncestorChain.Count; i++)
+            {
+                arr[i - 1] = ev.AncestorChain[i].ImageBasename;
+            }
+            ancestorBasenames = arr;
+        }
+
         var input = new ClassifierInput(
             NowTickMs: ev.TickMs,
             Hwnd: ev.Hwnd,
@@ -623,7 +637,8 @@ internal sealed class EnrichmentPipeline
             PrevForegroundHwnd: _prevForegroundHwnd,
             PrevForegroundPid: _prevForegroundPid,
             PrevForegroundIsAlive: _prevForegroundHwnd == IntPtr.Zero || IsAliveAndOwnedBy(_prevForegroundHwnd, _prevForegroundPid),
-            PrevForegroundProcessExited: prevForegroundProcessExited);
+            PrevForegroundProcessExited: prevForegroundProcessExited,
+            AncestorBasenames: ancestorBasenames);
 
         var result = FocusClassifier.Classify(input, _config);
 

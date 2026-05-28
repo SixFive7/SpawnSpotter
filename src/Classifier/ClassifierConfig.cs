@@ -20,7 +20,11 @@ public sealed record ClassifierConfig(
     bool DisableShellClassify,
     // Idle window for the STEAL vs MAYBE_STEAL split: an unexplained focus change with no
     // key/mouse activity for at least this long is high-confidence STEAL; within it, MAYBE_STEAL.
-    int StealActiveWindowMs)
+    int StealActiveWindowMs,
+    // Globs matched against the focused process's ANCESTOR basenames (not the focused process
+    // itself - use --ignore-image for that). Lets us suppress noisy children of a known-benign
+    // parent (e.g. cmd.exe spawned by devenv.exe) without blanket-ignoring all cmd.exe.
+    IReadOnlyList<string>? IgnoreChildOfGlobs = null)
 {
     public static ClassifierConfig Default { get; } = new(
         AltTabThresholdMs: 500,
@@ -32,5 +36,6 @@ public sealed record ClassifierConfig(
         IgnoreImageGlobs: [],
         ShellTransientClassGlobs: [],
         DisableShellClassify: false,
-        StealActiveWindowMs: 5 * 60 * 1000);
+        StealActiveWindowMs: 5 * 60 * 1000,
+        IgnoreChildOfGlobs: []);
 }

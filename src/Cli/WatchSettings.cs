@@ -70,6 +70,10 @@ public sealed class WatchSettings : CommandSettings
     [Description("Glob pattern matched against the focused process's image basename. Drops matching events. Repeatable")]
     public string[] IgnoreImage { get; init; } = [];
 
+    [CommandOption("--ignore-child-of <PATTERN>")]
+    [Description("Glob pattern matched against the focused process's ANCESTOR basenames (parent / grandparent / etc., not the focused image itself). Drops matching events. Repeatable. Useful for suppressing noisy children of a known-benign parent (e.g. --ignore-child-of devenv.exe to hide cmd.exe windows spawned by Visual Studio) without blanket-ignoring all cmd.exe")]
+    public string[] IgnoreChildOf { get; init; } = [];
+
     [CommandOption("--shell-class <PATTERN>")]
     [Description("Extend the built-in SHELL_TRANSIENT class catalogue with an additional class-name glob. Matching events are classified as SHELL_TRANSIENT (not STEAL). Repeatable")]
     public string[] ShellClass { get; init; } = [];

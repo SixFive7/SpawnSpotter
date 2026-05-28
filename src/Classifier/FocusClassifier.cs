@@ -39,9 +39,10 @@ public static class FocusClassifier
                     DropFromLog: false));
         }
 
-        // ---- Step 3: ignore-class / ignore-image filters ----
+        // ---- Step 3: ignore-class / ignore-image / ignore-child-of filters ----
         if (GlobMatcher.MatchesAny(input.WindowClass, config.IgnoreClassGlobs)
-            || GlobMatcher.MatchesAny(input.ImageBasename, config.IgnoreImageGlobs))
+            || GlobMatcher.MatchesAny(input.ImageBasename, config.IgnoreImageGlobs)
+            || AncestorMatches(input.AncestorBasenames, config.IgnoreChildOfGlobs))
         {
             // Drop silently (no log row, no LockedHwnd update). The consumer may still
             // emit a diagnostic line at verbosity >= 2 - that's a console concern, not a log one.
@@ -258,5 +259,21 @@ public static class FocusClassifier
         var imageMatch = string.Equals(imageBasename, "LockApp.exe", StringComparison.OrdinalIgnoreCase)
                          || imagePath.Contains("LockApp", StringComparison.OrdinalIgnoreCase);
         return imageMatch;
+    }
+
+    /// <summary>
+    /// True if any ancestor basename matches one of the <c>--ignore-child-of</c> globs. Inert
+    /// (returns false) when either input is null/empty - keeps the filter no-op for events lacking
+    /// parent-chain info (the default).
+    /// </summary>
+    private static bool AncestorMatches(IReadOnlyList<string>? ancestors, IReadOnlyList<string>? globs)
+    {
+        if (ancestors is null || ancestors.Count == 0) { return false; }
+        if (globs is null || globs.Count == 0) { return false; }
+        foreach (var basename in ancestors)
+        {
+            if (GlobMatcher.MatchesAny(basename, globs)) { return true; }
+        }
+        return false;
     }
 }

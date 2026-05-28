@@ -110,6 +110,62 @@ public class FocusClassifierTests
         await Assert.That(r.Classification).IsEqualTo(Classification.Steal);
     }
 
+    [Test]
+    public async Task IgnoreChildOf_AncestorMatches_DropsFromLog()
+    {
+        // cmd.exe (focused) was spawned by devenv.exe (ancestor at index 0 of AncestorBasenames -
+        // index 1 of the chain after stripping the focused process).
+        var cfg = DefaultCfg with { IgnoreChildOfGlobs = ["devenv.exe"] };
+        var input = Base() with { AncestorBasenames = new[] { "devenv.exe" } };
+        var r = FocusClassifier.Classify(input, cfg);
+        await Assert.That(r.DropFromLog).IsTrue();
+        await Assert.That(r.Note).IsEqualTo("ignore-filter drop");
+    }
+
+    [Test]
+    public async Task IgnoreChildOf_DeeperAncestorMatches_DropsFromLog()
+    {
+        // cmd.exe <- msbuild.exe <- devenv.exe. The pattern matches a grand-ancestor, two levels
+        // up, so a glob match anywhere in the chain (not just the direct parent) suppresses.
+        var cfg = DefaultCfg with { IgnoreChildOfGlobs = ["devenv.exe"] };
+        var input = Base() with { AncestorBasenames = new[] { "msbuild.exe", "devenv.exe" } };
+        var r = FocusClassifier.Classify(input, cfg);
+        await Assert.That(r.DropFromLog).IsTrue();
+    }
+
+    [Test]
+    public async Task IgnoreChildOf_NoMatch_DoesNotDrop()
+    {
+        // Ancestor exists but doesn't match the pattern: classification proceeds as usual.
+        var cfg = DefaultCfg with { IgnoreChildOfGlobs = ["devenv.exe"] };
+        var input = Base() with { AncestorBasenames = new[] { "explorer.exe" } };
+        var r = FocusClassifier.Classify(input, cfg);
+        await Assert.That(r.DropFromLog).IsFalse();
+        await Assert.That(r.Classification).IsEqualTo(Classification.Steal);
+    }
+
+    [Test]
+    public async Task IgnoreChildOf_FocusedImageDoesNotCount_OnlyAncestors()
+    {
+        // The focused process's own basename (cmd.exe in Base()) is NOT covered by
+        // --ignore-child-of - that's --ignore-image's job. A pattern matching the focused image
+        // but no ancestor must NOT drop via the child-of filter. With no ancestors supplied, the
+        // filter is inert.
+        var cfg = DefaultCfg with { IgnoreChildOfGlobs = ["cmd.exe"] };
+        var r = FocusClassifier.Classify(Base(), cfg);
+        await Assert.That(r.DropFromLog).IsFalse();
+    }
+
+    [Test]
+    public async Task IgnoreChildOf_GlobWildcard_Matches()
+    {
+        // Confirms the matching goes through GlobMatcher, not literal string equality.
+        var cfg = DefaultCfg with { IgnoreChildOfGlobs = ["dev*.exe"] };
+        var input = Base() with { AncestorBasenames = new[] { "devenv.exe" } };
+        var r = FocusClassifier.Classify(input, cfg);
+        await Assert.That(r.DropFromLog).IsTrue();
+    }
+
     // -------------------------------------------------------------------------
     // Pipeline step 4: standard input-source classification
     // -------------------------------------------------------------------------
