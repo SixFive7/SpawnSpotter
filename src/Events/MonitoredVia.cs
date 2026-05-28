@@ -1,6 +1,6 @@
 namespace SpawnSpotter.Events;
 
-/// <summary>Which WinEvent source produced an observation (plan section 5.2 / 5.7).
+/// <summary>Which WinEvent source produced an observation.
 /// <see cref="Internal"/> is used for synthetic records emitted by the pipeline itself
 /// (e.g., PIPELINE_PRESSURE rows) which have no underlying WinEvent source.</summary>
 public enum MonitoredVia

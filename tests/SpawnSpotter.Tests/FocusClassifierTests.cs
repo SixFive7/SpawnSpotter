@@ -4,9 +4,9 @@ using SpawnSpotter.Events;
 namespace SpawnSpotter.Tests;
 
 /// <summary>
-/// Truth-table for the focus classifier (plan section 5.5). This is the most important
-/// unit-tested component per step 8. Each test sets up a synthetic <see cref="ClassifierInput"/>
-/// and asserts both classification and anchor bookkeeping.
+/// Truth-table for the focus classifier. This is the most important unit-tested component;
+/// each test sets up a synthetic <see cref="ClassifierInput"/> and asserts both classification
+/// and anchor bookkeeping.
 /// </summary>
 public class FocusClassifierTests
 {
@@ -240,9 +240,8 @@ public class FocusClassifierTests
     }
 
     // -------------------------------------------------------------------------
-    // Per-source threshold overrides (plan section 5.9: --threshold-click-ms,
-    // --threshold-alttab-ms, --threshold-other-ms can each differ from the
-    // global --threshold-ms).
+    // Per-source threshold overrides: --threshold-click-ms, --threshold-alttab-ms,
+    // --threshold-other-ms can each differ from the global --threshold-ms.
     // -------------------------------------------------------------------------
 
     [Test]
@@ -315,8 +314,8 @@ public class FocusClassifierTests
     }
 
     // -------------------------------------------------------------------------
-    // Pipeline ordering: SESSION_LOCK > MonitorSuppress > ignore filters > standard
-    // (plan section 5.5). When two steps could match, the earlier one must win.
+    // Pipeline ordering: SESSION_LOCK > MonitorSuppress > ignore filters > standard.
+    // When two steps could match, the earlier one must win.
     // -------------------------------------------------------------------------
 
     [Test]
@@ -374,10 +373,9 @@ public class FocusClassifierTests
     }
 
     // -------------------------------------------------------------------------
-    // Startup-init behavior (plan section 5.5 LockedHwnd robustness):
-    // before any USER_* event is seen, the caller seeds LockedHwnd from
-    // GetForegroundWindow(). The classifier itself just reports whatever anchor
-    // is passed in; this test pins the contract.
+    // Startup-init behavior (LockedHwnd robustness): before any USER_* event is
+    // seen, the caller seeds LockedHwnd from GetForegroundWindow(). The classifier
+    // itself just reports whatever anchor is passed in; this test pins the contract.
     // -------------------------------------------------------------------------
 
     [Test]
@@ -405,9 +403,9 @@ public class FocusClassifierTests
     }
 
     // -------------------------------------------------------------------------
-    // Anchor-update bookkeeping for USER_* (plan section 5.5):
-    // every USER_* event must signal UpdateLockedAnchor=true so the caller can
-    // refresh the in-memory anchor to the new foreground.
+    // Anchor-update bookkeeping for USER_*: every USER_* event must signal
+    // UpdateLockedAnchor=true so the caller can refresh the in-memory anchor
+    // to the new foreground.
     // -------------------------------------------------------------------------
 
     [Test]

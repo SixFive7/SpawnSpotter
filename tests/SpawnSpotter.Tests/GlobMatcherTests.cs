@@ -37,7 +37,7 @@ public class GlobMatcherTests
         await Assert.That(GlobMatcher.MatchesAny("baroque", patterns)).IsTrue();
     }
 
-    // ---- Question-mark wildcard semantics (plan section 5.5 step 3) ----------
+    // ---- Question-mark wildcard semantics ------------------------------------
     // `?` must match EXACTLY ONE character — not zero, not many.
 
     [Test]

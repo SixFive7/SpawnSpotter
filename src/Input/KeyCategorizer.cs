@@ -5,7 +5,6 @@ namespace SpawnSpotter.Input;
 /// <summary>
 /// Pure static mapping from virtual-key code to <see cref="KeyCategory"/>. Lives in its
 /// own type so that TUnit can exercise the truth table without touching native code.
-/// Plan section 5.3 illustrative mapping.
 /// </summary>
 internal static class KeyCategorizer
 {

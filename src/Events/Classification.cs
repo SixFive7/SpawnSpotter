@@ -1,8 +1,8 @@
 namespace SpawnSpotter.Events;
 
 /// <summary>
-/// Final classification of an event row in the output. Most rows are focus-change classifications
-/// (plan section 5.5 / 5.7). <see cref="PipelinePressure"/> is a meta-row emitted by the enrichment
+/// Final classification of an event row in the output. Most rows are focus-change
+/// classifications. <see cref="PipelinePressure"/> is a meta-row emitted by the enrichment
 /// pipeline when the input buffer crosses pressure thresholds — it tells the analyst "here's where
 /// the pipeline got stressed" in the natural ordering of events.
 ///

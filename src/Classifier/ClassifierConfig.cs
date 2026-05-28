@@ -2,7 +2,7 @@ namespace SpawnSpotter.Classifier;
 
 /// <summary>
 /// Immutable configuration the classifier reads on every event. Derived from
-/// <see cref="Cli.WatchSettings"/> at startup. Plan section 5.9 thresholds.
+/// <see cref="Cli.WatchSettings"/> at startup.
 ///
 /// <para><see cref="ShellTransientClassGlobs"/> are union-applied with
 /// <see cref="ShellTransientPatterns.BuiltIn"/> unless <see cref="DisableShellClassify"/> is true.

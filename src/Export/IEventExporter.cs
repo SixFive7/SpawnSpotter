@@ -4,8 +4,8 @@ namespace SpawnSpotter.Export;
 
 /// <summary>
 /// A pluggable per-format writer. One instance per format, per logger run.
-/// Plan section 5.7. Implementations are responsible for header rendering on file
-/// creation, RFC-appropriate escaping, periodic flush, and graceful shutdown flush.
+/// Implementations are responsible for header rendering on file creation,
+/// RFC-appropriate escaping, periodic flush, and graceful shutdown flush.
 /// </summary>
 public interface IEventExporter : IAsyncDisposable
 {

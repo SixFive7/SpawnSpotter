@@ -3,7 +3,7 @@ using SpawnSpotter.Events;
 namespace SpawnSpotter.Classifier;
 
 /// <summary>
-/// Pure (no static state) classifier. Implements plan section 5.5 pipeline in order:
+/// Pure (no static state) classifier. The pipeline runs in order:
 /// 1) SESSION_LOCK override (LogonUI / LockApp); 2) monitor topology suppression;
 /// 3) --ignore-class / --ignore-image filters; 4) standard input-source classification.
 /// Also produces the locked-hwnd-anchor view per <see cref="ClassifierResult"/>.
@@ -204,8 +204,7 @@ public static class FocusClassifier
 
     /// <summary>
     /// Computes what should be written for <c>locked_hwnd_before</c> on this event, plus
-    /// whether the anchor should be cleared. Plan section 5.5 LockedHwnd robustness:
-    /// IsWindow validation + idle TTL.
+    /// whether the anchor should be cleared. LockedHwnd robustness: IsWindow validation + idle TTL.
     /// </summary>
     private static (IntPtr lockedHwnd, uint lockedPid, bool shouldClear, string? note)
         CurrentAnchorView(in ClassifierInput input, ClassifierConfig config)

@@ -5,7 +5,7 @@ namespace SpawnSpotter.Pipeline;
 
 /// <summary>
 /// Hand-rolled binary decoder for the classic (MOF) <c>Process</c> events emitted by the
-/// <c>NT Kernel Logger</c> — no TDH, no TraceEvent NuGet (forbidden by plan §3).
+/// <c>NT Kernel Logger</c> — no TDH, no TraceEvent NuGet.
 ///
 /// <para>
 /// Kernel Process events are discriminated by their MOF class GUID

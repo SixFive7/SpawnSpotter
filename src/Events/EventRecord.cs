@@ -3,7 +3,6 @@ namespace SpawnSpotter.Events;
 /// <summary>
 /// The canonical in-memory representation of a logged event. All exporters
 /// (CSV / JSONL / logfmt / Markdown / plain text / HTML) encode from this record.
-/// Plan section 5.7 schema; decision #26.
 /// </summary>
 public sealed record EventRecord(
     DateTime TimestampUtc,
@@ -22,7 +21,7 @@ public sealed record EventRecord(
     string Note);
 
 /// <summary>
-/// One node of the parent-process chain. Plan section 5.6.
+/// One node of the parent-process chain.
 /// </summary>
 public sealed record ChainNode(
     uint Pid,

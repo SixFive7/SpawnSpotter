@@ -3,8 +3,8 @@ using System.Runtime.InteropServices;
 namespace SpawnSpotter.Process;
 
 /// <summary>
-/// Native NT API structure layouts. Both 64-bit and 32-bit (WOW64) variants are needed
-/// per plan section 5.6 — different field sizes for 32-bit targets on 64-bit OS.
+/// Native NT API structure layouts. Both 64-bit and 32-bit (WOW64) variants are needed —
+/// different field sizes for 32-bit targets on 64-bit OS.
 /// </summary>
 
 [StructLayout(LayoutKind.Sequential)]

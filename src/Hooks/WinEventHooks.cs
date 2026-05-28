@@ -23,7 +23,7 @@ internal static unsafe class WinEventHooks
     private static IntPtr s_showHook;
     private static IntPtr s_focusHook;
 
-    // Plan section 5.2: all three subscribe with WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
+    // All three subscribe with WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
     // idProcess=0 idThread=0 (system-wide).
     private const uint Flags = Win32Const.WINEVENT_OUTOFCONTEXT | Win32Const.WINEVENT_SKIPOWNPROCESS;
 
@@ -88,8 +88,8 @@ internal static unsafe class WinEventHooks
     private static void ShowCallback(IntPtr hWinEventHook, uint eventType, IntPtr hwnd,
         int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
     {
-        // Aggressive in-callback filtering (plan section 5.2): top-level visible, not a child,
-        // not an owned popup. Drop everything else early - SHOW would otherwise flood the buffer
+        // Aggressive in-callback filtering: top-level visible, not a child, not an owned popup.
+        // Drop everything else early - SHOW would otherwise flood the buffer
         // with tooltip / menu / transient-popup noise. All filter calls are cheap in-process Win32.
         if (idObject != Win32Const.OBJID_WINDOW || idChild != Win32Const.CHILDID_SELF) { return; }
         if (!FilterTopLevelVisible(hwnd)) { return; }

@@ -9,9 +9,8 @@ namespace SpawnSpotter.Native;
 /// carry the full command line at creation — race-free, unlike a post-spawn user-mode query.
 ///
 /// <para>
-/// Plan §3 mandates hand-rolled P/Invoke + <c>[LibraryImport]</c> (no TraceEvent NuGet,
-/// no <c>[DllImport]</c>). All structs are blittable so the assembly-level
-/// <c>[DisableRuntimeMarshalling]</c> applies.
+/// Hand-rolled P/Invoke + <c>[LibraryImport]</c> (no TraceEvent NuGet, no <c>[DllImport]</c>).
+/// All structs are blittable so the assembly-level <c>[DisableRuntimeMarshalling]</c> applies.
 /// </para>
 /// </summary>
 internal static partial class Etw

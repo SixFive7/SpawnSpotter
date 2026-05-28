@@ -1,10 +1,9 @@
 namespace SpawnSpotter.Input;
 
 /// <summary>
-/// High-level categorization of a keystroke. Per plan section 5.3 / decision #17, the
-/// keyboard hook converts <c>vkCode</c> to one of these values inside the unmanaged
-/// callback and then DISCARDS the vkCode. The category is the only thing that lives past
-/// the callback; no log record ever sees the raw key.
+/// High-level categorization of a keystroke. The keyboard hook converts <c>vkCode</c> to one
+/// of these values inside the unmanaged callback and then DISCARDS the vkCode. The category is
+/// the only thing that lives past the callback; no log record ever sees the raw key.
 /// </summary>
 public enum KeyCategory
 {

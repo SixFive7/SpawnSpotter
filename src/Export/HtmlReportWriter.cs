@@ -6,7 +6,7 @@ using SpawnSpotter.Events;
 namespace SpawnSpotter.Export;
 
 /// <summary>
-/// Writes a single-file HTML report on graceful shutdown (plan 5.7 / step 12).
+/// Writes a single-file HTML report on graceful shutdown.
 /// Reads back the day's JSONL (or uses the in-memory accumulator), produces a
 /// self-contained HTML page with embedded CSS+JS, sortable table, classification
 /// filter, expandable rows showing the full parent chain.

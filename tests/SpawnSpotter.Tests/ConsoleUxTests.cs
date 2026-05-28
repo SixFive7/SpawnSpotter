@@ -6,7 +6,7 @@ using SpawnSpotter.Ui;
 namespace SpawnSpotter.Tests;
 
 /// <summary>
-/// Verbosity gating for the console UX (plan 5.8). <see cref="ConsoleUx.ShouldShowEvent"/> decides
+/// Verbosity gating for the console UX. <see cref="ConsoleUx.ShouldShowEvent"/> decides
 /// which classifications produce a per-event row at a given verbosity; <see cref="ConsoleUx.ShouldShowDiagnostic"/>
 /// gates diagnostic lines. PIPELINE_PRESSURE is always shown regardless of verbosity.
 /// </summary>

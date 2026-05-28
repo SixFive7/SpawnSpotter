@@ -364,7 +364,6 @@ pwsh -File scripts/smoke-test.ps1            # needs elevation (NT Kernel Logger
 
 ```
 SpawnSpotter/
-├── plan.md                          full design spec (691 lines)
 ├── app.manifest                     requireAdministrator + DPI + OS-compat
 ├── SpawnSpotter.csproj              main project (PublishAot=true)
 ├── Directory.Packages.props         central package management
@@ -398,25 +397,3 @@ SpawnSpotter/
                                       decoder, ProcessSpawnRegistry TTL semantics
 ```
 
----
-
-## Reference
-
-The full design spec is in [plan.md](plan.md). It contains the problem statement, all functional/non-functional requirements, the architecture rationale, an exhaustive evaluation of ~25 existing tools that were considered, the implementation order, risk analysis, and the decisions log.
-
-Sections of the plan that have been **superseded** by later refactors:
-
-- §4 / §5.1: single STA thread for all hooks — went through "one per hook" (zero cross-hook contention) and is now back to **a single producer thread** for all five hooks. Sub-µs callbacks make per-hook isolation unnecessary; a single producer gives strict seq-order at ingress, eliminating the inter-thread race on `Interlocked.Increment` and removing any need for a downstream reorder buffer.
-- §4 / §5.2: synchronous in-callback parent snapshot — moved into the parallel enrichment stage of the Dataflow pipeline in [src/Pipeline/EnrichmentPipeline.cs](src/Pipeline/EnrichmentPipeline.cs).
-- §5.6 `Thread.Sleep(10)` retry inside `ReadProcessMemory` — removed; the retry is now instant or skipped.
-- §5.3 keyboard/mouse hooks updating a global `InputState` struct — replaced by **unified pipeline**: every hook (input + window) posts via `EventBus.Post` to a single `BufferBlock`. Last-X timestamps now live as sink-local fields inside the classifier `ActionBlock`. There is no longer any global shared state between hooks and classifier.
-- Classifier exporting via a synchronous callback — replaced by a **`BroadcastBlock<EventRecord>` fan-out** with one `ActionBlock` per consumer (console UX, file exporters, HTML accumulator, shutdown watcher). Each consumer has its own back-pressure boundary.
-- Hook event timestamps from `Environment.TickCount64` at callback time — switched to **OS-recorded event time** from the hook data structs (`KBDLLHOOKSTRUCT.time` / `MSLLHOOKSTRUCT.time` / `dwmsEventTime`), reconstructed to a full 64-bit timestamp.
-
-Everything else in the plan (privacy model, AOT discipline, classifier truth-table, record schema, CLI surface, exporter formats, exit codes) holds.
-
-Additions beyond the original plan:
-
-- **`SHELL_TRANSIENT` classification** for known shell-host XAML popup classes (deflects taskbar previews / Start menu / language fly-outs / DWM compositor surfaces out of STEAL). User-extendable via `--shell-class`; killable via `--no-shell-classify`.
-- **`--threshold-click-ms` default bumped 500 → 5000.** Slow-following popups (file dialogs, taskbar previews) routinely take seconds to actually receive focus after the click that opened them — the tighter window mis-classified real `USER_CLICK` events as `STEAL`.
-- **Elevation + ETW spawner attribution.** Originally OUT OF SCOPE (plan §6 / §3 — admin requirement banned). Reintroduced because the user-mode walker truncates at `<exited>` on the short-lived process flashes that motivated the whole tool. `Microsoft-Windows-Kernel-Process` is the lowest-blast-radius option: documented public provider, no kernel driver, no TraceEvent NuGet (hand-rolled `[LibraryImport]` per plan §3). Requires `requireAdministrator` manifest.

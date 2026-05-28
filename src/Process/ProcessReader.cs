@@ -8,7 +8,7 @@ namespace SpawnSpotter.Process;
 /// <summary>
 /// Reads per-process metadata via OpenProcess + NT APIs + ReadProcessMemory.
 /// Used both by the in-callback synchronous snapshot (focused + parent) and by the
-/// consumer's full parent-chain walker. Plan section 5.6.
+/// consumer's full parent-chain walker.
 /// </summary>
 internal static unsafe class ProcessReader
 {
@@ -397,7 +397,7 @@ internal static unsafe class ProcessReader
         {
             return true;
         }
-        // Original plan §5.6 specified a 10 ms back-off before the single retry. Removed because
+        // An earlier design specified a 10 ms back-off before the single retry. Removed because
         // (a) the failure modes that need to "settle" — page-fault recovery, transient handle
         // state — resolve in microseconds, not milliseconds; and (b) this code now runs from
         // the EnrichmentPipeline's TransformBlock worker, and a 10 ms blocking sleep there would

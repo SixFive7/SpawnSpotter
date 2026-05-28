@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace SpawnSpotter.Export;
 
 // DTOs used for JSONL output. Keep them flat and use snake_case via JsonPropertyName so the
-// wire format matches plan section 5.7 schema names exactly.
+// wire format matches the documented record schema names exactly.
 public sealed class JsonEvent
 {
     [JsonPropertyName("timestamp_utc")] public string TimestampUtc { get; init; } = string.Empty;
