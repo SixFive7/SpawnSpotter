@@ -5,7 +5,7 @@ namespace SpawnSpotter.Native;
 
 /// <summary>
 /// All <c>[LibraryImport]</c> P/Invoke declarations used by SpawnSpotter.
-/// AOT rule (plan section 3): every native call goes through source-generated marshaling here.
+/// AOT rule: every native call goes through source-generated marshaling here.
 /// All blittable thanks to <c>[DisableRuntimeMarshalling]</c> at the assembly level — see
 /// <see cref="BOOL"/> for the bool surrogate.
 /// </summary>
@@ -15,8 +15,13 @@ internal static partial class Win32
     // Message loop / window plumbing
     // =========================================================================
 
+    // MSDN: returns int — > 0 (got a message), 0 (WM_QUIT received), -1 (error).
+    // The -1 path forces callers to distinguish "stop pumping" from "try again" — a raw
+    // BOOL surrogate would silently map -1 to true and re-enter the call, the canonical
+    // MSDN footgun. With our args (hWnd=NULL, valid lpMsg, min=max=0) -1 is not reachable,
+    // but the signature stays honest so a future caller can't trip the trap either.
     [LibraryImport("user32.dll", EntryPoint = "GetMessageW", SetLastError = true)]
-    public static partial BOOL GetMessageW(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+    public static partial int GetMessageW(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
 
     [LibraryImport("user32.dll", EntryPoint = "TranslateMessage", SetLastError = false)]
     public static partial BOOL TranslateMessage(in MSG lpMsg);

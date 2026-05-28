@@ -45,10 +45,10 @@ internal sealed class HookHostThread
 
     /// <summary>
     /// Read by the classifier; written by <see cref="WndProc"/> when the OS broadcasts
-    /// <c>WM_DISPLAYCHANGE</c> / <c>WM_DPICHANGED</c>. See plan section 5.5 step 2 — for 5 seconds
-    /// after either, foreground-change events are classified as <c>USER_OTHER</c> rather than
-    /// <c>STEAL</c>. The static field lives here because only the host instance that owns the
-    /// hidden window updates it; all other hook hosts (and the classifier) just read.
+    /// <c>WM_DISPLAYCHANGE</c> / <c>WM_DPICHANGED</c>. For 5 seconds after either, foreground-change
+    /// events are classified as <c>USER_OTHER</c> rather than <c>STEAL</c>. The static field lives
+    /// here because only the host instance that owns the hidden window updates it; all other hook
+    /// hosts (and the classifier) just read.
     /// </summary>
     public static long MonitorSuppressUntilTickMs;
 
@@ -124,8 +124,17 @@ internal sealed class HookHostThread
 
             _ready.Set();
 
-            while (Win32.GetMessageW(out var msg, IntPtr.Zero, 0, 0))
+            while (true)
             {
+                var rc = Win32.GetMessageW(out var msg, IntPtr.Zero, 0, 0);
+                if (rc == 0) { break; } // WM_QUIT
+                if (rc < 0)
+                {
+                    // Per MSDN: -1 indicates an error. Not reachable with our args (hWnd=NULL,
+                    // valid lpMsg, min=max=0), but treat defensively. Hard-fail per project policy.
+                    throw new InvalidOperationException(
+                        $"GetMessageW returned -1 (Win32 error 0x{Marshal.GetLastPInvokeError():X}).");
+                }
                 Win32.TranslateMessage(in msg);
                 Win32.DispatchMessageW(in msg);
             }
@@ -209,7 +218,7 @@ internal sealed class HookHostThread
         {
             case Win32Const.WM_DISPLAYCHANGE:
             case Win32Const.WM_DPICHANGED:
-                // Plan section 5.5 step 2: suppress for 5 seconds after a monitor topology change.
+                // Suppress for 5 seconds after a monitor topology change.
                 Volatile.Write(ref MonitorSuppressUntilTickMs, Environment.TickCount64 + 5000);
                 return IntPtr.Zero;
             case Win32Const.WM_DESTROY:
