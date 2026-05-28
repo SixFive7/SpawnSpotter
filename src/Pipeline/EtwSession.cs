@@ -10,7 +10,7 @@ namespace SpawnSpotter.Pipeline;
 /// to drain events into <c>ProcessSpawnRegistry</c>.
 ///
 /// <para>
-/// Lifecycle (Q1a — hard fail on session errors): any failure in <see cref="Start"/> throws
+/// Lifecycle (hard fail on session errors): any failure in <see cref="Start"/> throws
 /// <see cref="EtwSessionException"/>. The Runner catches it, prints a clear message, and
 /// exits non-zero. There is no automatic recovery — the user re-runs once the conflicting
 /// session is gone.
@@ -114,9 +114,13 @@ internal sealed unsafe class EtwSession : IDisposable
     }
 
     /// <summary>
-    /// Idempotent. Stops the session cleanly. Safe to call from a Ctrl+C handler or
-    /// <see cref="AppDomain.ProcessExit"/>. Errors are logged to stderr and swallowed —
-    /// teardown best-effort.
+    /// Idempotent. Stops the session cleanly. Safe to call from a Ctrl+C handler, an outer
+    /// <c>finally</c> block, or an <see cref="AppDomain.ProcessExit"/> hook — the
+    /// <c>_started</c> guard makes the second invocation a cheap no-op, so wiring both a
+    /// finally-driven teardown AND a ProcessExit safety net is fine. Errors from
+    /// <c>ControlTraceW</c> are logged to stderr and swallowed — teardown is best-effort
+    /// because the priority is releasing the NT Kernel Logger singleton (anything we can do
+    /// to avoid leaking it across runs).
     /// </summary>
     public void Stop()
     {
@@ -202,7 +206,7 @@ internal sealed unsafe class EtwSession : IDisposable
 }
 
 /// <summary>
-/// Thrown by <see cref="EtwSession.Start"/> on any session failure. Hard-fail per Q1a:
+/// Thrown by <see cref="EtwSession.Start"/> on any session failure. Hard-fail policy:
 /// the Runner catches this, prints the message, and exits with a non-zero code.
 /// </summary>
 internal sealed class EtwSessionException : Exception
