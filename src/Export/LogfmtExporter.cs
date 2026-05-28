@@ -9,7 +9,8 @@ internal sealed class LogfmtExporter : FileWriterBase
 {
     public override string Format => "logfmt";
 
-    public LogfmtExporter(string path) : base(path, headerLineIfFreshFile: null) { }
+    public LogfmtExporter(string baseDir, Func<DateTime>? utcNow = null)
+        : base(baseDir, "logfmt", headerLineIfFreshFile: null, utcNow: utcNow) { }
 
     protected override void WriteRecord(TextWriter writer, EventRecord r)
     {

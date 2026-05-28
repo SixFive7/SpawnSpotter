@@ -26,42 +26,45 @@ public class ExporterRoundtripTests
         LockedHwndBefore: (IntPtr)0x1111, LockedPidBefore: 9999,
         Note: "test note");
 
-    private static string TempPath(string ext)
+    /// <summary>Fresh per-test directory so daily files don't collide across runs.</summary>
+    private static string TempDir()
     {
-        var dir = Path.Combine(Path.GetTempPath(), "spawnspotter-tests");
+        var dir = Path.Combine(Path.GetTempPath(), "spawnspotter-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
-        return Path.Combine(dir, $"export-{Guid.NewGuid():N}.{ext}");
+        return dir;
     }
 
     [Test]
     public async Task Csv_WritesHeaderAndRow()
     {
-        var path = TempPath("csv");
+        var dir = TempDir();
         try
         {
-            await using (var ex = new CsvExporter(path))
+            await using (var ex = new CsvExporter(dir))
             {
                 await ex.WriteAsync(SampleRecord());
             }
+            var path = LogDirectory.DailyPath(dir, "csv");
             var lines = await File.ReadAllLinesAsync(path);
             await Assert.That(lines.Length).IsEqualTo(2);
             await Assert.That(lines[0]).StartsWith("timestamp_utc,classification");
             await Assert.That(lines[1]).Contains("STEAL");
             await Assert.That(lines[1]).Contains("0xABCD");
         }
-        finally { File.Delete(path); }
+        finally { Directory.Delete(dir, recursive: true); }
     }
 
     [Test]
     public async Task Jsonl_ProducesParseableObject()
     {
-        var path = TempPath("jsonl");
+        var dir = TempDir();
         try
         {
-            await using (var ex = new JsonlExporter(path))
+            await using (var ex = new JsonlExporter(dir))
             {
                 await ex.WriteAsync(SampleRecord());
             }
+            var path = LogDirectory.DailyPath(dir, "jsonl");
             var text = await File.ReadAllTextAsync(path);
             var parsed = JsonSerializer.Deserialize(text.TrimEnd(), JsonExportContext.Default.JsonEvent)!;
             await Assert.That(parsed.Classification).IsEqualTo("STEAL");
@@ -71,59 +74,62 @@ public class ExporterRoundtripTests
             await Assert.That(parsed.ParentChain[0].Basename).IsEqualTo("cmd.exe");
             await Assert.That(parsed.ParentChain[0].Cwd).IsEqualTo(@"C:\");
         }
-        finally { File.Delete(path); }
+        finally { Directory.Delete(dir, recursive: true); }
     }
 
     [Test]
     public async Task Logfmt_WritesKeyValuePairs()
     {
-        var path = TempPath("logfmt");
+        var dir = TempDir();
         try
         {
-            await using (var ex = new LogfmtExporter(path))
+            await using (var ex = new LogfmtExporter(dir))
             {
                 await ex.WriteAsync(SampleRecord("has spaces"));
             }
+            var path = LogDirectory.DailyPath(dir, "logfmt");
             var text = await File.ReadAllTextAsync(path);
             await Assert.That(text).Contains("classification=STEAL");
             await Assert.That(text).Contains("focused_pid=1234");
             await Assert.That(text).Contains("window_title=\"has spaces\"");
         }
-        finally { File.Delete(path); }
+        finally { Directory.Delete(dir, recursive: true); }
     }
 
     [Test]
     public async Task Markdown_WritesTable()
     {
-        var path = TempPath("md");
+        var dir = TempDir();
         try
         {
-            await using (var ex = new MarkdownExporter(path))
+            await using (var ex = new MarkdownExporter(dir))
             {
                 await ex.WriteAsync(SampleRecord("a|b"));
             }
+            var path = LogDirectory.DailyPath(dir, "md");
             var text = await File.ReadAllTextAsync(path);
             await Assert.That(text).Contains("| timestamp_utc |");
             await Assert.That(text).Contains("|---");
             await Assert.That(text).Contains("a\\|b");
         }
-        finally { File.Delete(path); }
+        finally { Directory.Delete(dir, recursive: true); }
     }
 
     [Test]
     public async Task PlainText_ProducesOneLine()
     {
-        var path = TempPath("log");
+        var dir = TempDir();
         try
         {
-            await using (var ex = new PlainTextExporter(path))
+            await using (var ex = new PlainTextExporter(dir))
             {
                 await ex.WriteAsync(SampleRecord());
             }
+            var path = LogDirectory.DailyPath(dir, "log");
             var lines = await File.ReadAllLinesAsync(path);
             await Assert.That(lines.Length).IsEqualTo(1);
             await Assert.That(lines[0]).Contains("[STEAL]");
         }
-        finally { File.Delete(path); }
+        finally { Directory.Delete(dir, recursive: true); }
     }
 }

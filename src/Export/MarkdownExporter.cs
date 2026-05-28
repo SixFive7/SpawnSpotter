@@ -4,7 +4,7 @@ using SpawnSpotter.Events;
 
 namespace SpawnSpotter.Export;
 
-/// <summary>Markdown table exporter: header row on file create; pipes in titles escaped.</summary>
+/// <summary>Markdown table exporter: header row on file create (and on every UTC day rollover); pipes in titles escaped.</summary>
 internal sealed class MarkdownExporter : FileWriterBase
 {
     public override string Format => "md";
@@ -14,8 +14,8 @@ internal sealed class MarkdownExporter : FileWriterBase
     private const string SeparatorRow =
         "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|";
 
-    public MarkdownExporter(string path)
-        : base(path, headerLineIfFreshFile: HeaderRow + "\n" + SeparatorRow) { }
+    public MarkdownExporter(string baseDir, Func<DateTime>? utcNow = null)
+        : base(baseDir, "md", headerLineIfFreshFile: HeaderRow + "\n" + SeparatorRow, utcNow: utcNow) { }
 
     protected override void WriteRecord(TextWriter writer, EventRecord r)
     {

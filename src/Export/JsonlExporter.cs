@@ -4,14 +4,15 @@ using SpawnSpotter.Events;
 namespace SpawnSpotter.Export;
 
 /// <summary>
-/// JSON-Lines exporter. The canonical lossless representation (plan 5.7).
+/// JSON-Lines exporter. The canonical lossless representation.
 /// Uses <see cref="JsonExportContext"/> source-generated metadata for AOT compatibility.
 /// </summary>
 internal sealed class JsonlExporter : FileWriterBase
 {
     public override string Format => "jsonl";
 
-    public JsonlExporter(string path) : base(path, headerLineIfFreshFile: null) { }
+    public JsonlExporter(string baseDir, Func<DateTime>? utcNow = null)
+        : base(baseDir, "jsonl", headerLineIfFreshFile: null, utcNow: utcNow) { }
 
     protected override void WriteRecord(TextWriter writer, EventRecord record)
     {
