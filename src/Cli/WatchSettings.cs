@@ -4,7 +4,7 @@ using Spectre.Console.Cli;
 namespace SpawnSpotter.Cli;
 
 /// <summary>
-/// CLI settings for the <c>watch</c> command. Defaults shown here match plan §5.9.
+/// CLI settings for the <c>watch</c> command.
 /// </summary>
 public sealed class WatchSettings : CommandSettings
 {
@@ -131,6 +131,27 @@ public sealed class WatchSettings : CommandSettings
         if (Mode is not ("interactive" or "silent" or "status-only"))
         {
             return Spectre.Console.ValidationResult.Error("--mode must be one of: interactive, silent, status-only");
+        }
+        // --format validation: each comma-separated token must be one of the formats the
+        // ExporterRegistry knows about. Without this check, an unknown token would surface as
+        // an ArgumentException during pipeline construction and Program.cs would map it to
+        // exit 64 (unhandled exception). README documents bad-args as exit 2, so route through
+        // Spectre's Validate() instead — ValidationResult.Error → exit 2 pre-execution.
+        // Allowed set must stay in sync with ExporterRegistry's switch (csv, jsonl, logfmt, md,
+        // markdown, log, txt, plain, html, plus empty which the registry silently ignores).
+        if (Format is { Length: > 0 })
+        {
+            foreach (var raw in Format.Split(',', StringSplitOptions.None))
+            {
+                var token = raw.Trim().ToLowerInvariant();
+                if (token is "" or "csv" or "jsonl" or "logfmt" or "md" or "markdown"
+                    or "log" or "txt" or "plain" or "html")
+                {
+                    continue;
+                }
+                return Spectre.Console.ValidationResult.Error(
+                    $"Unknown format '{token}'. Allowed: csv, jsonl, logfmt, md, log, html.");
+            }
         }
         return base.Validate();
     }
