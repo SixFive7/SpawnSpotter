@@ -6,23 +6,27 @@ using SpawnSpotter.Pipeline;
 namespace SpawnSpotter.Ui;
 
 /// <summary>
-/// Console rendering for <c>interactive</c> / <c>silent</c> / <c>status-only</c> modes
-/// (plan 5.8). For step 13 we keep this lean: a polled status-line update + per-event
-/// scrolling lines. Spectre.Console's Live API is intentionally NOT used because under
-/// AOT + our stdout-redirected scenarios it adds complexity for marginal benefit.
+/// Console rendering for <c>interactive</c> / <c>silent</c> / <c>status-only</c> modes.
+/// Kept lean: a polled status-line update + per-event scrolling lines. Spectre.Console's
+/// Live API is intentionally NOT used because under AOT + our stdout-redirected scenarios
+/// it adds complexity for marginal benefit.
 /// </summary>
 internal sealed class ConsoleUx
 {
     private readonly WatchSettings _settings;
     private readonly Counters _counters;
+    private readonly Func<bool>? _etwHealthProbe;
     private readonly DateTime _startedAtUtc;
     private string _lastStealOneLiner = "";
     private string _lastStealAt = "";
 
-    public ConsoleUx(WatchSettings settings, Counters counters)
+    public ConsoleUx(WatchSettings settings, Counters counters, Func<bool>? etwHealthProbe = null)
     {
         _settings = settings;
         _counters = counters;
+        // Optional — null means "skip the health marker". Func<bool> rather than the EtwConsumer
+        // itself to avoid pulling the consumer into UI dependencies and to make tests trivial.
+        _etwHealthProbe = etwHealthProbe;
         _startedAtUtc = DateTime.UtcNow;
     }
 
@@ -30,7 +34,7 @@ internal sealed class ConsoleUx
     public bool ShouldRenderPerEvent => _settings.Mode == "interactive";
 
     /// <summary>
-    /// Decide if a given classification produces a per-event console row per verbosity (plan 5.8).
+    /// Decide if a given classification produces a per-event console row per verbosity.
     /// </summary>
     public bool ShouldShowEvent(Classification cls)
     {
@@ -119,6 +123,13 @@ internal sealed class ConsoleUx
             // Pipeline shed events under buffer pressure — surface it live, not only at exit.
             sb.Append(" | DROPPED ").Append(droppedAtIngest).Append(" (buffer pressure)");
         }
+        if (_etwHealthProbe is { } probe && !probe())
+        {
+            // ETW consumer thread crashed or ProcessTrace returned a non-success status mid-run.
+            // The spawn registry still self-prunes via TTL (~10 min) so the degradation is bounded,
+            // but past-exit chain recovery is now silently weaker — surface it.
+            sb.Append(" | ETW-DEAD");
+        }
         sb.Append(" | -v ").Append(_settings.Verbosity).Append(", --mode ").Append(_settings.Mode);
         sb.Append(" | Ctrl+C to stop");
         return sb.ToString();
@@ -134,7 +145,10 @@ internal sealed class ConsoleUx
         var pressure = _counters.PipelinePressure > 0 ? $" PIPELINE_PRESSURE={_counters.PipelinePressure}" : "";
         var droppedCount = EventBus.DroppedAtIngest;
         var dropped = droppedCount > 0 ? $" dropped_at_ingest={droppedCount}" : "";
+        var etwDead = _etwHealthProbe is { } probe && !probe()
+            ? " ETW spawn-attribution went offline during run."
+            : "";
         return string.Create(CultureInfo.InvariantCulture,
-            $"Ran {elapsed:hh\\:mm\\:ss}. Logged STEAL={_counters.Steal} MAYBE_STEAL={_counters.MaybeSteal} SESSION_LOCK={_counters.SessionLock} USER_ALT_TAB={_counters.UserAltTab} USER_CLICK={_counters.UserClick} USER_OTHER={_counters.UserOther}{shell}{prevClosed}{focusRestored}{sameApp}{pressure}{dropped}. Files: {logDir}");
+            $"Ran {elapsed:hh\\:mm\\:ss}. Logged STEAL={_counters.Steal} MAYBE_STEAL={_counters.MaybeSteal} SESSION_LOCK={_counters.SessionLock} USER_ALT_TAB={_counters.UserAltTab} USER_CLICK={_counters.UserClick} USER_OTHER={_counters.UserOther}{shell}{prevClosed}{focusRestored}{sameApp}{pressure}{dropped}.{etwDead} Files: {logDir}");
     }
 }

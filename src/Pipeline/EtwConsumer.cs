@@ -37,6 +37,16 @@ internal sealed unsafe class EtwConsumer : IDisposable
     private IntPtr _sessionNameBuffer;  // UTF-16 buffer holding the session name for OpenTraceW
     private bool _running;
     private bool _disposed;
+    private volatile bool _isHealthy = true;
+
+    /// <summary>
+    /// True while the consumer thread is alive and dispatching events. Flips to false if
+    /// <c>ProcessTrace</c> returns an unexpected status or the worker throws — i.e., the abnormal
+    /// termination paths. A normal <see cref="Stop"/> does NOT flip this; the consumer is still
+    /// "healthy" — it just shut down on request. Surface for the status line + exit summary so the
+    /// user sees that chain-walk past-exit recovery has silently weakened mid-run.
+    /// </summary>
+    public bool IsHealthy => _isHealthy;
 
     public EtwConsumer(string sessionName, ProcessSpawnRegistry registry)
     {
@@ -142,11 +152,13 @@ internal sealed unsafe class EtwConsumer : IDisposable
             if (rc != Etw.ERROR_SUCCESS && rc != Etw.ERROR_CTX_CLOSE_PENDING && _running)
             {
                 Console.Error.WriteLine($"[ETW] ProcessTrace returned 0x{rc:X} for session '{_sessionName}'.");
+                _isHealthy = false;
             }
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[ETW] Consumer thread crashed: {ex.Message}");
+            _isHealthy = false;
         }
     }
 
