@@ -377,57 +377,44 @@ internal sealed class EnrichmentPipeline
         }
         if (parent is { } p)
         {
-            chain.Add(ToNode(p));
+            // The immediate parent is resolved from the child's recorded creator PID, which the
+            // kernel stamps once and never updates - so this first link carries exactly the same
+            // PID-reuse hazard as every link above it, and must be checked here rather than left
+            // to the walker (which only starts at this node's parent).
+            var candidate = ToNode(p);
+            var childCreatedUtc = chain.Count > 0 ? chain[^1].CreateTimeUtc : null;
+            switch (ParentLinkVerifier.Check(childCreatedUtc, candidate.CreateTimeUtc))
+            {
+                case ParentLinkVerdict.PidReused:
+                    chain.Add(ParentLinkVerifier.TruncationNode(candidate.Pid));
+                    return chain;
+
+                case ParentLinkVerdict.Unverified:
+                    chain.Add(candidate with { Note = ParentLinkVerifier.AnnotateUnverified(candidate.Note) });
+                    break;
+
+                default:
+                    chain.Add(candidate);
+                    break;
+            }
         }
         WalkAncestors(chain);
         return chain;
     }
 
     private void WalkAncestors(List<ChainNode> chain)
+        => ChainWalker.Walk(chain, _config.MaxChainDepth, ResolveAncestor);
+
+    /// <summary>
+    /// Production resolver for <see cref="ChainWalker"/>: a live handle first, the ETW-fed
+    /// registry second, and null when the PID is unknown to both. Reports what each source
+    /// knows - including the creation time - and applies no ordering policy of its own.
+    /// </summary>
+    private ChainNode? ResolveAncestor(uint pid)
     {
-        if (chain.Count == 0) { return; }
-        var maxDepth = _config.MaxChainDepth;
-        var nextPid = chain[^1].ParentPid;
-        var seen = new HashSet<uint>(8);
-        foreach (var n in chain) { seen.Add(n.Pid); }
-
-        while (chain.Count < maxDepth && nextPid != 0 && nextPid != 4 && !seen.Contains(nextPid))
+        if (ProcessReader.TrySnapshot(pid, _captureEnv, out var rec))
         {
-            if (!ProcessReader.TrySnapshot(nextPid, _captureEnv, out var rec))
-            {
-                // User-mode OpenProcess failed (process exited or PPL-protected). Fall back to
-                // the ETW-fed spawn registry - if we observed this PID earlier we still know
-                // its parent and image, so the chain can keep walking past the exit boundary.
-                if (_spawnRegistry is not null && _spawnRegistry.TryGet(nextPid, out var info))
-                {
-                    chain.Add(new ChainNode(
-                        Pid: nextPid,
-                        ImagePath: info.ImageName,
-                        ImageBasename: info.ImageName,
-                        CommandLine: info.CommandLine,
-                        CurrentDirectory: string.Empty,
-                        PackageAumi: null,
-                        Environment: null,
-                        ParentPid: info.ParentPid,
-                        Note: info.ExitedAtTickMs.HasValue ? "via ETW (exited)" : "via ETW"));
-                    seen.Add(nextPid);
-                    nextPid = info.ParentPid;
-                    continue;
-                }
-
-                chain.Add(new ChainNode(
-                    Pid: nextPid,
-                    ImagePath: "<exited or access denied>",
-                    ImageBasename: string.Empty,
-                    CommandLine: string.Empty,
-                    CurrentDirectory: string.Empty,
-                    PackageAumi: null,
-                    Environment: null,
-                    ParentPid: 0,
-                    Note: "OpenProcess failed"));
-                break;
-            }
-            chain.Add(new ChainNode(
+            return new ChainNode(
                 Pid: rec.Pid,
                 ImagePath: rec.ImagePath,
                 ImageBasename: rec.ImageBasename,
@@ -437,10 +424,30 @@ internal sealed class EnrichmentPipeline
                 Environment: rec.Environment,
                 ParentPid: rec.ParentPid,
                 Note: rec.Note,
-                SessionId: rec.SessionId));
-            seen.Add(rec.Pid);
-            nextPid = rec.ParentPid;
+                SessionId: rec.SessionId,
+                CreateTimeUtc: rec.CreateTimeUtc);
         }
+
+        // User-mode OpenProcess failed (process exited or PPL-protected). Fall back to
+        // the ETW-fed spawn registry - if we observed this PID earlier we still know
+        // its parent and image, so the chain can keep walking past the exit boundary.
+        if (_spawnRegistry is not null && _spawnRegistry.TryGet(pid, out var info))
+        {
+            return new ChainNode(
+                Pid: pid,
+                ImagePath: info.ImageName,
+                ImageBasename: info.ImageName,
+                CommandLine: info.CommandLine,
+                CurrentDirectory: string.Empty,
+                PackageAumi: null,
+                Environment: null,
+                ParentPid: info.ParentPid,
+                Note: info.ExitedAtTickMs.HasValue ? "via ETW (exited)" : "via ETW",
+                // Null for rundown-sourced entries; the walker marks those links unverified.
+                CreateTimeUtc: info.CreatedAtUtc);
+        }
+
+        return null;
     }
 
     private static ProcessSnapshot ToSnapshot(ProcessReader.ProcessRecord r) => new(
@@ -452,7 +459,8 @@ internal sealed class EnrichmentPipeline
         PackageAumi: r.PackageAumi,
         ParentPid: r.ParentPid,
         Note: r.Note,
-        SessionId: r.SessionId);
+        SessionId: r.SessionId,
+        CreateTimeUtc: r.CreateTimeUtc);
 
     private static ChainNode ToNode(ProcessSnapshot s) => new(
         Pid: s.Pid,
@@ -464,7 +472,8 @@ internal sealed class EnrichmentPipeline
         Environment: null,
         ParentPid: s.ParentPid,
         Note: s.Note,
-        SessionId: s.SessionId);
+        SessionId: s.SessionId,
+        CreateTimeUtc: s.CreateTimeUtc);
 
     private static unsafe string ReadClassName(IntPtr hwnd)
     {
