@@ -38,5 +38,9 @@ public sealed record ChainNode(
     IReadOnlyDictionary<string, string>? Environment,
     uint ParentPid,
     string? Note,
-    uint SessionId = 0);
+    uint SessionId = 0,
+    // Process creation time (UTC). Null = unknown (ETW rundown entry, or the query failed).
+    // A parent whose creation time is later than its child's is proof the PID was recycled,
+    // which is what lets the walker refuse to graft a stranger's ancestry onto the chain.
+    DateTime? CreateTimeUtc = null);
 

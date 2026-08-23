@@ -160,6 +160,32 @@ internal static partial class Win32
     [LibraryImport("kernel32.dll", EntryPoint = "CloseHandle", SetLastError = true)]
     public static partial BOOL CloseHandle(IntPtr hObject);
 
+    /// <summary>
+    /// Process timing. Only <c>lpCreationTime</c> is used: a process's creation time is the
+    /// only thing that distinguishes a genuine parent from whatever process happens to occupy
+    /// a recycled PID today, so it is the anchor for the chain walker's ordering invariant.
+    ///
+    /// <para>
+    /// Satisfied by <c>PROCESS_QUERY_LIMITED_INFORMATION</c> - the access the caller already
+    /// holds - so this needs no wider mask (widening would start failing on protected
+    /// processes that currently succeed).
+    /// </para>
+    ///
+    /// <para>
+    /// Each <c>FILETIME</c> is declared as <c>long</c>: the struct is
+    /// <c>{ DWORD dwLowDateTime; DWORD dwHighDateTime; }</c>, which on little-endian x64 is
+    /// layout-identical to a 64-bit integer and blittable under
+    /// <c>[DisableRuntimeMarshalling]</c>.
+    /// </para>
+    /// </summary>
+    [LibraryImport("kernel32.dll", EntryPoint = "GetProcessTimes", SetLastError = true)]
+    public static partial BOOL GetProcessTimes(
+        IntPtr hProcess,
+        out long lpCreationTime,
+        out long lpExitTime,
+        out long lpKernelTime,
+        out long lpUserTime);
+
     [LibraryImport("kernel32.dll", EntryPoint = "QueryFullProcessImageNameW", SetLastError = true)]
     public static unsafe partial BOOL QueryFullProcessImageNameW(IntPtr hProcess, uint dwFlags, char* lpExeName, ref uint lpdwSize);
 

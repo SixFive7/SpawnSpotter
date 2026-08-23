@@ -223,7 +223,15 @@ internal static class EtwPayloadDecoder
             case OpcodeProcessDCStart:
                 if (TryDecodeProcessStart(payload, out var spid, out var sppid, out var simg, out var scmd))
                 {
-                    registry.OnProcessStart(spid, sppid, BasenameOf(simg), scmd, nowTickMs);
+                    // Only a real Start carries a birth date. Its event header timestamp IS the
+                    // moment the kernel created the process. A DCStart/rundown describes a
+                    // process that already existed when the session attached, so its header
+                    // timestamp is attach time, not creation time - record null there and let
+                    // the chain walker treat the link as unverifiable rather than fabricate one.
+                    var createdAtUtc = opcode == OpcodeProcessStart
+                        ? EventHeaderTimeToUtc(rec->EventHeader.TimeStamp)
+                        : null;
+                    registry.OnProcessStart(spid, sppid, BasenameOf(simg), scmd, nowTickMs, createdAtUtc);
                     return true;
                 }
                 break;
@@ -238,6 +246,20 @@ internal static class EtwPayloadDecoder
         }
         return false;
     }
+
+    /// <summary>
+    /// Convert an <c>EVENT_HEADER.TimeStamp</c> to UTC.
+    ///
+    /// <para>
+    /// The session is created with a QPC clock (<c>WNODE_CLIENT_CONTEXT_QPC</c>), but the
+    /// consumer does NOT set <c>PROCESS_TRACE_MODE_RAW_TIMESTAMP</c>, and without that flag ETW
+    /// normalizes every delivered timestamp to a FILETIME - 100 ns ticks since 1601-01-01 UTC -
+    /// regardless of the session clock. So this value is directly comparable with the
+    /// <c>GetProcessTimes</c> creation times read on the live path.
+    /// </para>
+    /// </summary>
+    internal static DateTime? EventHeaderTimeToUtc(long headerTimeStamp)
+        => SpawnSpotter.Process.ProcessReader.FileTimeToUtc(headerTimeStamp);
 
     /// <summary>
     /// Extract the file basename from an absolute or NT-relative path. Kernel image names

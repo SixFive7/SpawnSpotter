@@ -20,4 +20,10 @@ internal readonly record struct ProcessSpawnInfo(
     string ImageName,
     string CommandLine,
     long ObservedAtTickMs,
-    long? ExitedAtTickMs);
+    long? ExitedAtTickMs,
+    // Genuine process creation time (UTC), taken from the ETW event header of a ProcessStart.
+    // Null for rundown (DCStart) entries: those describe processes that already existed when
+    // the session attached, so no birth date is available and inventing one would be worse
+    // than admitting ignorance. Deliberately distinct from ObservedAtTickMs, which is only
+    // "when SpawnSpotter first saw this pid" and is NOT a creation time.
+    DateTime? CreatedAtUtc = null);

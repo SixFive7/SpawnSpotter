@@ -46,9 +46,22 @@ internal sealed class ProcessSpawnRegistry : IDisposable
     /// <summary>
     /// Record a process-start (or rundown - semantically identical to us) observation. If a
     /// record already exists for this pid (e.g. the user-mode walker beat us to it, or rundown
-    /// arrived after the start), the newer observation wins.
+    /// arrived after the start), the newer observation wins - a second start for the same pid
+    /// IS a reused PID, so the whole entry (creation time included) must be replaced.
+    ///
+    /// <para>
+    /// <paramref name="createdAtUtc"/> is the real birth date and should be supplied only for a
+    /// true ProcessStart. Leave it null for rundown entries; null means "unknown", which the
+    /// chain walker treats as unverifiable rather than as a violation.
+    /// </para>
     /// </summary>
-    public void OnProcessStart(uint pid, uint parentPid, string imageName, string commandLine, long observedAtTickMs)
+    public void OnProcessStart(
+        uint pid,
+        uint parentPid,
+        string imageName,
+        string commandLine,
+        long observedAtTickMs,
+        DateTime? createdAtUtc = null)
     {
         if (pid == 0) { return; }
         _byPid[pid] = new ProcessSpawnInfo(
@@ -57,7 +70,8 @@ internal sealed class ProcessSpawnRegistry : IDisposable
             ImageName: imageName,
             CommandLine: commandLine,
             ObservedAtTickMs: observedAtTickMs,
-            ExitedAtTickMs: null);
+            ExitedAtTickMs: null,
+            CreatedAtUtc: createdAtUtc);
     }
 
     /// <summary>

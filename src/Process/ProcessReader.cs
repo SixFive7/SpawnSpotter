@@ -24,6 +24,13 @@ internal static unsafe class ProcessReader
         public uint SessionId; // 0 = Services session; 1+ = interactive (RDP/console)
         public Dictionary<string, string>? Environment;
         public string? Note;
+
+        /// <summary>
+        /// Process creation time in UTC, or null if <c>GetProcessTimes</c> failed. This is the
+        /// process's identity anchor: a PID identifies a slot, not a process, so only the birth
+        /// date can tell a genuine parent from the stranger now occupying a recycled PID.
+        /// </summary>
+        public DateTime? CreateTimeUtc;
     }
 
     public const uint MACHINE_UNKNOWN = 0;
@@ -83,6 +90,11 @@ internal static unsafe class ProcessReader
         // is sufficient; the call is a single ULONG read so cost is negligible. Useful for
         // RDP / multi-session forensic disambiguation (which session was the focus-stealer in?).
         rec.SessionId = QuerySessionId(hProc);
+
+        // 3c) Creation time, on the handle we already hold - PROCESS_QUERY_LIMITED_INFORMATION
+        // covers GetProcessTimes, so no second OpenProcess and no wider access mask. Without
+        // this the chain walker has no way to notice that a "parent" PID has been recycled.
+        rec.CreateTimeUtc = QueryCreateTimeUtc(hProc);
 
         // 4) UWP AUMI fallback if cmdline empty or under SystemApps/WindowsApps.
         if (string.IsNullOrEmpty(rec.CommandLine)
@@ -194,6 +206,37 @@ internal static unsafe class ProcessReader
         finally
         {
             ArrayPool<char>.Shared.Return(buf);
+        }
+    }
+
+    /// <summary>
+    /// Process creation time in UTC, or null when it cannot be determined. Never throws: a bad
+    /// FILETIME from a process racing its own exit must degrade to "unknown" rather than take
+    /// down an enrichment that is otherwise fine.
+    /// </summary>
+    private static DateTime? QueryCreateTimeUtc(IntPtr hProc)
+    {
+        if (!Win32.GetProcessTimes(hProc, out var creation, out _, out _, out _))
+        {
+            return null;
+        }
+        return FileTimeToUtc(creation);
+    }
+
+    /// <summary>
+    /// Convert a FILETIME (100 ns ticks since 1601-01-01 UTC) to <see cref="DateTime"/>,
+    /// returning null for zero / negative / out-of-range values instead of throwing.
+    /// </summary>
+    internal static DateTime? FileTimeToUtc(long fileTime)
+    {
+        if (fileTime <= 0) { return null; }
+        try
+        {
+            return DateTime.FromFileTimeUtc(fileTime);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
         }
     }
 
