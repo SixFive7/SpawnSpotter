@@ -115,11 +115,16 @@ confidence split until the first input is observed.
 
 ## 6. Naming the actor - what Windows will and will not tell us
 
-Research conclusion: **Windows does not expose the initiator of a foreground change to
-any user-mode observer.** Not WinEvents, not the Win32k ETW provider, not any documented
-API. Every mechanism reports the transition, never the actor. The same Win32k manifest
+**No documented API or event payload names the initiator.** WinEvents give the window
+gaining foreground; every Win32k focus event payload is old-to-new. The same manifest
 emits `CallerPid` for clipboard reads and full `SourcePID`/`TargetPID` for UIPI
-*denials*, so the omission for focus is deliberate.
+*denials*, so the omission from the focus payloads looks deliberate.
+
+**But the ETW envelope leaks it anyway - measured, not theorised.** See the confirmed
+experiment below: `EVENT_HEADER.ProcessId`/`ThreadId` on the Win32k focus events name the
+thread that *executed* the foreground change, which is the caller. This is the single
+most important finding for attribution and it reverses the earlier conclusion that the
+initiator was unreachable.
 
 `AllowSetForegroundWindow` and `CoAllowSetForegroundWindow` let process A donate
 foreground rights to B, with no event, audit, or query API for the grant. Any scheme is
@@ -134,15 +139,37 @@ suspects honestly". Two tractable follow-ons:
   foreground disturbance with task launches in the preceding ~2 s would have named
   `\Microsoft\Windows\Patch Claude Code Extension` in the 2026-08-16 incident instead of
   "some powershell". Highest-value attribution win available.
-- **Win32k ETW session** - gated on one unresolved experiment. ETW stamps
-  `EVENT_HEADER.ProcessId` with the thread *executing* the trace call. If win32k emits
-  its focus event inside the `NtUserSetForegroundWindow` syscall path, that header PID
-  **is the caller**. Still untested: the 2026-08-23 probe aborted during target setup
-  because Win11's Store Notepad hands off to a different process and `MainWindowHandle`
-  returned 0. A re-run needs a plain Win32 window (not Notepad) and, to stay focus-safe,
-  an isolated desktop via `CreateDesktop` + `STARTUPINFO.lpDesktop`. Validity caveat:
-  foreground semantics differ on a non-active desktop, so a negative result there is not
-  conclusive for the interactive case.
+- **Win32k ETW session - CONFIRMED to name the caller. Promote to top of attribution
+  work.** Experiment run 2026-08-23, two independent trials, Win11 26200. Setup: a plain
+  Win32 target window T, and a separate caller process C whose own console holds the
+  foreground, which then calls `SetForegroundWindow(T)`. Caller and gainer are different
+  processes by construction.
+
+  | Run | C (caller) pid/tid | payload old -> new | ETW header pid/tid |
+  |---|---|---|---|
+  | 1 | 89100 / 60904 | 69472 -> 13632 (T) | **89100 / 60904** |
+  | 2 | 37540 / 52596 | 44064 -> 11072 (T) | **37540 / 52596** |
+
+  In both runs the header names C, which is *neither* the process losing focus nor the
+  one gaining it, and the header TID matches the thread id C recorded about itself
+  exactly. Events 26 (`FocusedProcessChange`) and 2 (`FocusChange`) both carry it. When an
+  app raises its own window the header equals the gainer, which is consistent: the
+  initiator and the gainer are then the same process.
+
+  Payloads are small and fixed-layout (event 26 is three `UInt32`s; event 2 is two), so
+  hand-decoding as `EtwPayloadDecoder` already does is viable - no TDH needed. Guard on
+  `EventDescriptor.Version` and refuse unknown versions rather than misparse: the focus
+  event set has demonstrably grown across builds.
+
+  **Limits, so this is not oversold.** Two trials on one build. Only
+  `SetForegroundWindow` was exercised - `SwitchToThisWindow`, `ShowWindow`,
+  `SetWindowPos` and shell-initiated activation are untested and may or may not stamp the
+  same way. It names the *caller*, which is not always the instigator: the
+  `AllowSetForegroundWindow` donation hole below still applies. Kernel-mode provider, so
+  elevation is mandatory.
+
+  Artifacts: `C:\Users\jori\Downloads\tmp-fgprobe` (`REPORT-run1.txt`, `REPORT.txt`,
+  `probe.ps1`, `target.ps1`, `caller.ps1`).
 
 Operational note if a Win32k session is ever added: **kernel-mode providers yield zero
 events to an unelevated collector, silently** - the session starts, tooling reports
