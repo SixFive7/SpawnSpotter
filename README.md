@@ -331,13 +331,27 @@ Default is `csv,jsonl`. Opt-in to more via `--format csv,jsonl,logfmt,md,log,htm
 | `window_class` | string | Win32 window class name. |
 | `window_title` | string | Window caption. |
 | `focused_pid` | int | PID owning that HWND. |
-| `parent_chain` | line-formats: `pid:basename:cmdline -> pid:basename:cmdline -> ...` / JSONL: array of `{pid, image_path, basename, command_line, cwd, package_aumi?, env?, note?}` | Walks up to PID 0/4 or `--max-chain-depth`. JSONL is structured; other formats are basename-only for readability. |
+| `parent_chain` | line-formats: `pid:basename:cmdline -> pid:basename:cmdline -> ...` / JSONL: array of `{pid, image_path, basename, command_line, cwd, package_aumi?, env?, note?, created_utc?}` | Walks up to PID 0/4 or `--max-chain-depth`. JSONL is structured; other formats are basename-only for readability. `created_utc` is the process creation time (omitted when unknown); it is what lets the walker reject a recycled PID — see below. |
 | `key_age_ms` | int | Ms since last keyboard event. |
 | `mouse_age_ms` | int | Ms since last mouse-button-down. |
 | `idle_time_ms` | int | `min(key_age_ms, mouse_age_ms)`. |
 | `locked_hwnd_before` | hex string | The HWND that was "what the user was really working on" before this event, or `0x0` if expired / destroyed. |
 | `locked_pid_before` | int | PID for `locked_hwnd_before`. |
 | `note` | string | Free-text annotation (`"parent already exited"`, `"locked anchor expired"`, `"monitor topology change"`, `"buffer pressure: 940/1024 (91%)"`, `"shell-transient class"`, `"via ETW (exited)"`, etc.). |
+
+### PID reuse and chain truncation
+
+A Windows PID identifies a *slot*, not a process. The kernel stamps a process's creator PID at creation time and never updates it, so once that creator exits the number is recycled and "who holds this PID now" starts answering with an unrelated process. Following such a link would graft a stranger's entire ancestry onto the focused window — and the misattribution is biased, not random: the most likely occupant of any recycled PID is whichever process churns through PIDs fastest.
+
+SpawnSpotter therefore records each node's creation time and enforces one invariant: **a parent cannot be created after its child.**
+
+- **Proven violation** — the chain stops and the last node becomes a marker: basename and image path `<parent exited, PID reused>`, with note `chain truncated: pid reused (candidate created after child)`. Nothing above it is reported, because none of it is ours. The marker is written to the basename deliberately, so it is visible in the line-oriented formats too, not just JSONL.
+- **Unprovable link** — when either creation time is unknown (an ETW rundown entry, or the query failed), the node is kept but its note gains `parent link unverified (creation time unknown)`. Unknown is not evidence of reuse, and truncating on it would discard correct chains.
+- Equal timestamps are **accepted**: fast spawns legitimately share a clock tick.
+
+The check covers the immediate parent as well as every walked ancestor, on both the live `OpenProcess` path and the ETW-registry fallback.
+
+Caveat worth knowing when reading a chain: for a window that was *raised* rather than *launched*, the parent chain answers "who originally started this app", which is not the same question as "who called `SetForegroundWindow`". A correct chain can still be the wrong question.
 
 ---
 

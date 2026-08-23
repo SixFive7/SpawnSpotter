@@ -12,7 +12,45 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-_No unreleased changes._
+### Fixed
+
+- **Parent chain no longer fabricates ancestors through PID reuse.** A Windows PID
+  identifies a slot, not a process: the kernel stamps a creator PID at creation and
+  never updates it, so once the creator exits the number is recycled and the chain
+  walker's "who holds this PID now" lookup starts answering with an unrelated
+  process - grafting that stranger's whole ancestry onto the focused window. The
+  walker now records each process's creation time and enforces the invariant that a
+  parent cannot be created after its child. A proven violation truncates the chain
+  with a terminal node marked `chain truncated: pid reused (candidate created after
+  child)`; an unprovable link (creation time unknown on either side) is kept but
+  annotated `parent link unverified (creation time unknown)` rather than dropped.
+  The check covers the immediate parent as well as walked ancestors, and applies to
+  both the live `OpenProcess` path and the ETW-registry fallback.
+
+  The misattribution was biased, not random: the most likely current occupant of any
+  recycled PID is whichever process churns through PIDs fastest, so the detector
+  systematically accused the busiest process-spawner on the machine.
+
+### Added
+
+- Per-chain-node process creation time, captured via `GetProcessTimes` on the live
+  path (no additional handle and no widened access mask - the existing
+  `PROCESS_QUERY_LIMITED_INFORMATION` already covers it) and from the ETW event
+  header on `ProcessStart`. Rundown (`DCStart`) entries describe processes that
+  already existed when the session attached and carry no creation time, so theirs is
+  recorded as unknown rather than invented.
+- JSONL chain nodes gain an optional `created_utc` field (ISO-8601 UTC, omitted when
+  unknown) so the ordering invariant can be re-checked from the logs after the fact.
+
+### Changed
+
+- The CSV header is **unchanged**: creation time is per-chain-node, and the CSV
+  renders the whole chain into a single flattened cell, so a new column has no
+  sensible per-node meaning. JSONL remains the lossless representation. Chain-cell
+  *content* can now contain the `<parent exited, PID reused>` marker where a chain
+  was truncated - the marker is written to the node's basename deliberately, so the
+  truncation is visible in the line-oriented formats (CSV, logfmt, Markdown, plain
+  text) and not only in JSONL.
 
 ## [1.0.0] - TBD
 
