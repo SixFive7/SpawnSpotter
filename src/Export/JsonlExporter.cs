@@ -37,6 +37,7 @@ internal sealed class JsonlExporter : FileWriterBase
                 PackageAumi = n.PackageAumi,
                 Env = n.Environment is null ? null : new Dictionary<string, string>(n.Environment),
                 Note = n.Note,
+                CreatedUtc = n.CreateTimeUtc is { } c ? RecordFormatting.Iso8601UtcMs(c) : null,
             });
         }
 

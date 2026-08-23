@@ -45,6 +45,12 @@ public sealed class JsonChainNode
     [JsonPropertyName("note")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Note { get; init; }
+    // Process creation time, ISO-8601 UTC. Omitted when unknown (ETW rundown entry, or the
+    // GetProcessTimes query failed). Present so post-hoc analysis can re-check the chain's
+    // ordering invariant against the logs instead of trusting the walker.
+    [JsonPropertyName("created_utc")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CreatedUtc { get; init; }
 }
 
 [JsonSerializable(typeof(JsonEvent))]
